@@ -28,14 +28,14 @@ var upgrader = websocket.Upgrader{
 
 // Client represents a WebSocket client
 type Client struct {
-	ID   string
-	Name string
-	Room *Room
-	conn *websocket.Conn
-	send chan []byte
+	ID       string
+	Name     string
+	Room     *Room
+	conn     *websocket.Conn
+	send     chan []byte
 	Username string
-	Avatar string
-	inGame bool
+	Avatar   []int
+	inGame   bool
 }
 
 // Server represents the WebSocket server
@@ -181,7 +181,6 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 
 		log.Printf("New user %s onboarded with avatar %s", c.Username, c.Avatar)
 
-
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -197,7 +196,7 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		// Check if username exists in UserManager
 		if s.userManager.DoesUserExist(payload.Username) {
 			// Returning user - get their profile
-			user, _ := s.userManager.GetOrCreateUserByUsername(payload.Username, "")
+			user, _ := s.userManager.GetOrCreateUserByUsername(payload.Username, make([]int, 3))
 
 			// Set client fields from existing user
 			c.Username = user.Username
@@ -224,28 +223,5 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			c.Room.unregister <- c
 			c.Room = nil
 		}
-
-	case protocol.MsgPlayerMove:
-		if c.Room == nil {
-			return
-		}
-		var payload protocol.PlayerMovePayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling player move payload: %v", err)
-			return
-		}
-		c.Room.UpdatePlayerPosition(c.ID, payload.X, payload.Y)
-
-	case protocol.MsgPlayerInput:
-		if c.Room == nil {
-			return
-		}
-		var payload protocol.PlayerInputPayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling player input payload: %v", err)
-			return
-		}
-		// Handle custom input actions here
-		log.Printf("Player %s action: %s", c.Name, payload.Action)
 	}
 }

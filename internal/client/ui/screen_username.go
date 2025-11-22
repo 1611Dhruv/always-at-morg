@@ -13,8 +13,17 @@ func (m Model) updateUsernameEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		if len(m.usernameInput) > 0 {
-			m.playerName = m.usernameInput
-			m.viewState = ViewAvatarCustomization
+			m.userName = m.usernameInput
+
+			// Joiin the room
+			if m.connMgr != nil && m.connMgr.IsConnected() {
+				err := m.connMgr.JoinRoom(m.roomID, m.userName)
+				if err != nil {
+					m.err = err
+					return m, nil
+				}
+				// Server will respond with an event, which will trigger screen transition
+			}
 		}
 		return m, nil
 

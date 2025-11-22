@@ -126,7 +126,7 @@ func (m Model) renderStatusBar() string {
 	playerInfo := lipgloss.NewStyle().
 		Foreground(successColor).
 		Bold(true).
-		Render("Player: " + m.playerName)
+		Render("Player: " + m.userName)
 
 	avatarDisplay := lipgloss.NewStyle().
 		Foreground(secondaryColor).

@@ -67,10 +67,16 @@ func (m *Manager) Disconnect() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Only disconnect if we're currently connected
+	if !m.connected {
+		return
+	}
+
+	m.connected = false
+
 	if m.conn != nil {
 		close(m.done)
 		m.conn.Close()
-		m.connected = false
 	}
 }
 
@@ -81,30 +87,24 @@ func (m *Manager) IsConnected() bool {
 	return m.connected
 }
 
+//// FROM CLIENT -> SERVER MESSAGES ////
+
 // JoinRoom sends a join room request
 func (m *Manager) JoinRoom(roomID, playerName string) error {
 	return m.sendMessage(protocol.MsgJoinRoom, protocol.JoinRoomPayload{
-		RoomID:     roomID,
-		PlayerName: playerName,
+		RoomID:   roomID,
+		Username: playerName,
 	})
 }
 
-// SendMove sends a player move
-func (m *Manager) SendMove(x, y int, direction string) error {
-	return m.sendMessage(protocol.MsgPlayerMove, protocol.PlayerMovePayload{
-		X:         x,
-		Y:         y,
-		Direction: direction,
+func (m *Manager) SendOnboardResponse(playerName string, avatar []int) error {
+	return m.sendMessage(protocol.MsgOnboard, protocol.OnboardPayload{
+		Name:   playerName,
+		Avatar: avatar,
 	})
 }
 
-// SendInput sends a player input action
-func (m *Manager) SendInput(action string, data map[string]interface{}) error {
-	return m.sendMessage(protocol.MsgPlayerInput, protocol.PlayerInputPayload{
-		Action: action,
-		Data:   data,
-	})
-}
+////////////////////////////////////////////
 
 // GetState returns the current game state
 func (m *Manager) GetState() *protocol.GameState {
@@ -168,33 +168,6 @@ func (m *Manager) handleMessage(data []byte) {
 	}
 
 	switch msg.Type {
-	case protocol.MsgGameState:
-		var state protocol.GameState
-		if err := json.Unmarshal(msg.Payload, &state); err != nil {
-			log.Printf("Error unmarshaling game state: %v", err)
-			return
-		}
-		m.state.UpdateState(&state)
-		m.sendEvent(GameStateEvent{State: &state})
-
-	case protocol.MsgPlayerJoined:
-		var payload protocol.PlayerJoinedPayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling player joined: %v", err)
-			return
-		}
-		m.state.AddPlayer(payload.Player)
-		m.sendEvent(PlayerJoinedEvent{Player: payload.Player})
-
-	case protocol.MsgPlayerLeft:
-		var payload protocol.PlayerLeftPayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling player left: %v", err)
-			return
-		}
-		m.state.RemovePlayer(payload.PlayerID)
-		m.sendEvent(PlayerLeftEvent{PlayerID: payload.PlayerID})
-
 	case protocol.MsgRoomJoined:
 		var payload protocol.RoomJoinedPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -202,7 +175,7 @@ func (m *Manager) handleMessage(data []byte) {
 			return
 		}
 		m.state.UpdateState(payload.GameState)
-		m.sendEvent(GameStateEvent{State: payload.GameState})
+		m.sendEvent(GameStateEvent{})
 		log.Printf("Joined room %s as player %s", payload.RoomID, payload.PlayerID)
 
 	case protocol.MsgError:
@@ -213,6 +186,9 @@ func (m *Manager) handleMessage(data []byte) {
 		}
 		m.sendEvent(ErrorEvent{Message: payload.Message})
 		log.Printf("Server error: %s", payload.Message)
+
+	case protocol.MsgOnboardRequest:
+		m.sendEvent(OnboardRequestEvent{})
 	}
 }
 

@@ -17,9 +17,10 @@ const (
 
 // Model is the main Bubble Tea model
 type Model struct {
-	viewState     ViewState
-	connMgr       *connection.Manager
-	playerName    string
+	viewState ViewState
+	connMgr   *connection.Manager   // Single connection manager, reused throughout session
+	eventChan chan connection.Event // Channel for connection events
+
 	usernameInput string
 	avatar        Avatar
 	avatarCursor  int
@@ -30,18 +31,34 @@ type Model struct {
 	// Loading screen
 	loadingDots int
 	serverURL   string
+	roomID      string // Room to join
+	userName    string
 }
 
-// NewModel creates a new Bubble Tea model
+// NewModel creates a new Bubble Tea model with a connection manager
 func NewModel(serverURL string) Model {
+	// Create ONE connection manager that will be reused for the entire session
+	connMgr := connection.NewManager(serverURL)
+
+	// Create event channel for connection events
+	eventChan := make(chan connection.Event, 10)
+
+	// Set up event callback - when server sends events, push to channel
+	connMgr.OnEvent(func(event connection.Event) {
+		eventChan <- event
+	})
+
 	return Model{
 		viewState:     ViewLoading,
+		connMgr:       connMgr,
+		eventChan:     eventChan,
 		usernameInput: "",
 		avatar:        NewAvatar(),
 		avatarCursor:  0,
 		width:         80,
 		height:        24,
 		serverURL:     serverURL,
+		roomID:        "default-room", // Default room
 		loadingDots:   0,
 	}
 }
@@ -52,18 +69,19 @@ func NewModelWithView(view ViewState) Model {
 	m.viewState = view
 	// Set some defaults for testing
 	if view == ViewMainGame {
-		m.playerName = "TestUser"
+		m.userName = "TestUser"
 	}
 	return m
 }
 
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
-	// Start connection attempt on loading screen
-	if m.viewState == ViewLoading {
+	// Start connection attempt on loading screen using the existing connection manager
+	if m.viewState == ViewLoading && m.connMgr != nil {
 		return tea.Batch(
-			connectCmd(m.serverURL),
-			tickCmd(),
+			connectCmd(m.connMgr), // Connect to server
+			tickCmd(),             // Tick for animations
+			listenForEventsCmd(m.connMgr, m.eventChan), // Listen for server events
 		)
 	}
 	return nil
@@ -100,6 +118,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case connectionEventMsg:
+		// Server sent an event - handle it and decide which screen to show
+		return m.handleConnectionEvent(msg.event)
+
 	case tickMsg:
 		// Update loading animation
 		if m.viewState == ViewLoading {
@@ -125,4 +147,60 @@ func (m Model) View() string {
 		return m.viewMainGame()
 	}
 	return ""
+}
+
+// Disconnect safely disconnects the connection manager
+func (m *Model) Disconnect() {
+	if m.connMgr != nil {
+		m.connMgr.Disconnect()
+	}
+}
+
+// Add new event handlers below when you add new event types in connection/events.go
+func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd) {
+	switch e := event.(type) {
+
+	case connection.ConnectedEvent:
+		// Server connected - we already handle this in connectionSuccessMsg
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.DisconnectedEvent:
+		// Lost connection - go back to loading screen
+		m.viewState = ViewLoading
+		m.err = e.Error
+		return m, nil
+
+	case connection.ErrorEvent:
+		// Server sent error - show it but stay on current screen
+		return m, tea.Batch(
+			tea.Println("Server error:", e.Message),
+			listenForEventsCmd(m.connMgr, m.eventChan),
+		)
+
+	// ============================================
+	// GAME STATE EVENTS
+	// ============================================
+	case connection.GameStateEvent:
+		// Server sent game state - move to avatar customization
+		// (This means server accepted our username)
+		m.viewState = ViewMainGame
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	// ============================================
+	// CHAT EVENTS
+	// ============================================
+	case connection.ChatMessageEvent:
+		// Received a chat message
+		// TODO: Add to chat panel
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.OnboardRequestEvent:
+		// Server requests onboarding - transition to avatar customization screen
+		m.viewState = ViewAvatarCustomization
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	default:
+		// Unknown event type - just keep listening
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+	}
 }

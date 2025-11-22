@@ -56,8 +56,21 @@ func (m Model) updateAvatarCustomization(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "enter":
-		// Confirm avatar and go to main game
-		m.viewState = ViewMainGame
+		// Confirm this avatar selection and send to server
+		if m.connMgr != nil && m.connMgr.IsConnected() {
+			avatarSelection := []int{
+				m.avatar.HeadIndex,
+				m.avatar.TorsoIndex,
+				m.avatar.LegsIndex,
+			}
+			err := m.connMgr.SendOnboardResponse(m.userName, avatarSelection)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+
+			// Server will respond with the GameState event
+		}
 		return m, nil
 	}
 
@@ -67,7 +80,7 @@ func (m Model) updateAvatarCustomization(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // viewAvatarCustomization renders the avatar customization screen
 func (m Model) viewAvatarCustomization() string {
 	// Title
-	title := titleStyle.Render(fmt.Sprintf("✨ CUSTOMIZE YOUR AVATAR, %s", strings.ToUpper(m.playerName)))
+	title := titleStyle.Render(fmt.Sprintf("✨ CUSTOMIZE YOUR AVATAR, %s", m.userName))
 
 	// Avatar preview with cursor indicators
 	var avatarLines []string

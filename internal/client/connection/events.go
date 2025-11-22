@@ -1,7 +1,5 @@
 package connection
 
-import "github.com/yourusername/always-at-morg/internal/protocol"
-
 // Event represents events from the connection manager
 type Event interface {
 	isEvent()
@@ -19,27 +17,6 @@ type DisconnectedEvent struct {
 
 func (DisconnectedEvent) isEvent() {}
 
-// GameStateEvent is sent when game state is updated
-type GameStateEvent struct {
-	State *protocol.GameState
-}
-
-func (GameStateEvent) isEvent() {}
-
-// PlayerJoinedEvent is sent when a player joins
-type PlayerJoinedEvent struct {
-	Player protocol.Player
-}
-
-func (PlayerJoinedEvent) isEvent() {}
-
-// PlayerLeftEvent is sent when a player leaves
-type PlayerLeftEvent struct {
-	PlayerID string
-}
-
-func (PlayerLeftEvent) isEvent() {}
-
 // ErrorEvent is sent when an error occurs
 type ErrorEvent struct {
 	Message string
@@ -47,10 +24,17 @@ type ErrorEvent struct {
 
 func (ErrorEvent) isEvent() {}
 
-// ChatMessageEvent is sent when a chat message is received
-type ChatMessageEvent struct {
-	Sender  string
-	Message string
-}
+// The onboarding event
+type OnboardRequestEvent struct{}
+
+func (OnboardRequestEvent) isEvent() {}
+
+// Game State event:
+type GameStateEvent struct{}
+
+func (GameStateEvent) isEvent() {}
+
+// Chat Message event:
+type ChatMessageEvent struct{}
 
 func (ChatMessageEvent) isEvent() {}
