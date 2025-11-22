@@ -7,119 +7,40 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/yourusername/always-at-morg/internal/client"
+	"github.com/yourusername/always-at-morg/internal/client/ui"
 )
 
 func main() {
 	serverURL := flag.String("server", "ws://localhost:8080/ws", "WebSocket server URL")
-	mode := flag.String("mode", "menu", "Start mode: menu, lobby, or game")
-	roomID := flag.String("room", "default-room", "Room ID to join")
-	playerName := flag.String("name", "Player1", "Player name")
-	useTermloop := flag.Bool("termloop", false, "Use termloop for game rendering")
+	screen := flag.String("screen", "", "Screen to display (for testing): loading, username, avatar, game")
 	flag.Parse()
 
-	switch *mode {
-	case "menu":
-		// Start with Bubble Tea menu
-		runBubbleTea()
+	var model ui.Model
 
-	case "lobby":
-		// Connect and show lobby
-		runLobby(*serverURL, *roomID, *playerName)
-
-	case "game":
-		// Connect and start game directly
-		if *useTermloop {
-			runTermloopGame(*serverURL, *roomID, *playerName)
-		} else {
-			runBubbleTeaGame(*serverURL, *roomID, *playerName)
+	// If screen flag is provided, start at that screen (for testing)
+	if *screen != "" {
+		var viewState ui.ViewState
+		switch *screen {
+		case "loading":
+			viewState = ui.ViewLoading
+		case "username":
+			viewState = ui.ViewUsernameEntry
+		case "avatar":
+			viewState = ui.ViewAvatarCustomization
+		case "game":
+			viewState = ui.ViewMainGame
+		default:
+			fmt.Printf("Unknown screen: %s\n", *screen)
+			fmt.Println("Valid screens: loading, username, avatar, game")
+			os.Exit(1)
 		}
-
-	default:
-		fmt.Printf("Unknown mode: %s\n", *mode)
-		flag.Usage()
-		os.Exit(1)
-	}
-}
-
-// runBubbleTea runs the Bubble Tea menu interface
-func runBubbleTea() {
-	p := tea.NewProgram(client.NewModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		log.Fatal(err)
-	}
-}
-
-// runLobby connects to server and shows lobby
-func runLobby(serverURL, roomID, playerName string) {
-	wsClient, err := client.NewWSClient(serverURL)
-	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
-	}
-	defer wsClient.Close()
-
-	stateReceiver := client.NewGameStateReceiver()
-
-	if err := wsClient.JoinRoom(roomID, playerName); err != nil {
-		log.Fatalf("Failed to join room: %v", err)
+		model = ui.NewModelWithView(viewState)
+	} else {
+		// Normal flow: start with loading screen and connect to server
+		model = ui.NewModel(*serverURL)
 	}
 
-	// Listen for messages in background
-	go func() {
-		for msg := range wsClient.Receive() {
-			stateReceiver.HandleMessage(msg)
-		}
-	}()
-
-	// Create Bubble Tea model in lobby state
-	model := client.NewModel()
-	// Note: You would need to extend the Model to support this initialization
-	// For now, use the menu-based flow
-
-	p := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		log.Fatal(err)
-	}
-}
-
-// runTermloopGame runs the game using termloop
-func runTermloopGame(serverURL, roomID, playerName string) {
-	wsClient, err := client.NewWSClient(serverURL)
-	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
-	}
-	defer wsClient.Close()
-
-	stateReceiver := client.NewGameStateReceiver()
-
-	if err := wsClient.JoinRoom(roomID, playerName); err != nil {
-		log.Fatalf("Failed to join room: %v", err)
-	}
-
-	log.Printf("Starting termloop game in room %s as %s", roomID, playerName)
-
-	game := client.NewTermloopGame(wsClient, stateReceiver)
-	game.Start()
-}
-
-// runBubbleTeaGame runs the game using Bubble Tea's game view
-func runBubbleTeaGame(serverURL, roomID, playerName string) {
-	wsClient, err := client.NewWSClient(serverURL)
-	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
-	}
-	defer wsClient.Close()
-
-	stateReceiver := client.NewGameStateReceiver()
-
-	if err := wsClient.JoinRoom(roomID, playerName); err != nil {
-		log.Fatalf("Failed to join room: %v", err)
-	}
-
-	// Create Bubble Tea model in game state
-	model := client.NewModel()
-	// Note: You would need to extend the Model to support this initialization
-
+	// Run Bubble Tea
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
