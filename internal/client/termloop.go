@@ -50,7 +50,6 @@ func (tg *TermloopGame) Start() {
 
 // Stop stops the termloop game
 func (tg *TermloopGame) Stop() {
-	tg.game.End()
 }
 
 // UpdateFromState updates the game from the server state
@@ -82,10 +81,10 @@ func (tg *TermloopGame) UpdateFromState() {
 
 // PlayerEntity represents a player in the termloop game
 type PlayerEntity struct {
-	player      protocol.Player
-	isLocal     bool
-	wsClient    *WSClient
-	x, y        int
+	player       protocol.Player
+	isLocal      bool
+	wsClient     *WSClient
+	x, y         int
 	prevX, prevY int
 }
 
@@ -205,7 +204,7 @@ func (pe *PlayerEntity) Size() (int, int) {
 
 // GameUpdater handles game state updates
 type GameUpdater struct {
-	game *TermloopGame
+	game  *TermloopGame
 	ticks int
 }
 
