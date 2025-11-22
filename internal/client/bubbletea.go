@@ -5,17 +5,146 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yourusername/always-at-morg/internal/protocol"
+)
+
+// Color palette - Earthy tones (lighter for dark backgrounds)
+var (
+	primaryColor   = lipgloss.Color("#E8C4A0")   // Light warm beige
+	secondaryColor = lipgloss.Color("#7EBB81")   // Light forest green
+	accentColor    = lipgloss.Color("#A8C9A4")   // Soft sage green
+	successColor   = lipgloss.Color("#B5D99C")   // Bright sage
+	mutedColor     = lipgloss.Color("#B8A890")   // Light taupe
+	fgColor        = lipgloss.Color("#F5F3ED")   // Warm white
+	highlightColor = lipgloss.Color("#F0DEB4")   // Cream highlight
+)
+
+// Styles
+var (
+	titleStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true).
+			Padding(1, 2).
+			Align(lipgloss.Center)
+
+	subtitleStyle = lipgloss.NewStyle().
+			Foreground(secondaryColor).
+			Italic(true).
+			Align(lipgloss.Center)
+
+	boxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primaryColor).
+			Padding(1, 2).
+			Margin(1, 0)
+
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(accentColor).
+			Padding(0, 1).
+			Width(30)
+
+	highlightStyle = lipgloss.NewStyle().
+			Foreground(successColor).
+			Bold(true)
+
+	mutedStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
+
+	instructionStyle = lipgloss.NewStyle().
+				Foreground(mutedColor).
+				Italic(true).
+				Margin(1, 0)
+
+	avatarBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(secondaryColor).
+			Padding(1, 3).
+			Align(lipgloss.Center)
+
+	optionStyle = lipgloss.NewStyle().
+			Foreground(fgColor).
+			Padding(0, 1)
+
+	selectedOptionStyle = lipgloss.NewStyle().
+				Foreground(successColor).
+				Bold(true).
+				Padding(0, 1)
+
+	cursorStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true)
+
+	gameBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(primaryColor).
+			Padding(1)
+
+	chatBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accentColor).
+			Padding(1)
+
+	centerStyle = lipgloss.NewStyle().
+			Align(lipgloss.Center).
+			Foreground(mutedColor).
+			Italic(true)
 )
 
 // ViewState represents the current view in the TUI
 type ViewState int
 
 const (
-	ViewMenu ViewState = iota
-	ViewLobby
-	ViewGame
+	ViewUsernameEntry ViewState = iota
+	ViewAvatarCustomization
+	ViewMainGame
 )
+
+// Avatar presets
+var (
+	HeadOptions = []string{
+		" ō ", // happy face
+		" ^ ", // cute face
+		" - ", // neutral face
+		" ◡ ", // smile
+		" ◉ ", // wide eyes
+		" ∩ ", // arc
+	}
+
+	TorsoOptions = []string{
+		"/|\\", // T-pose
+		"{+}", // armored
+		"<|>", // wide stance
+		"[|]", // box body
+		"(|)", // rounded
+		"\\|/", // Y-pose
+	}
+
+	LegOptions = []string{
+		"/ \\", // standing
+		"| |", // straight legs
+		"^ ^", // feet up
+		"∧ ∧", // pointed feet
+		"⌐ ⌐", // boots
+		"◡ ◡", // curved
+	}
+)
+
+// Avatar represents a 3x3 character avatar
+type Avatar struct {
+	HeadIndex  int
+	TorsoIndex int
+	LegsIndex  int
+}
+
+// Render returns the 3-line string representation
+func (a Avatar) Render() string {
+	return fmt.Sprintf("%s\n%s\n%s",
+		HeadOptions[a.HeadIndex],
+		TorsoOptions[a.TorsoIndex],
+		LegOptions[a.LegsIndex])
+}
 
 // Model is the Bubble Tea model for the game client
 type Model struct {
@@ -23,21 +152,49 @@ type Model struct {
 	wsClient       *WSClient
 	stateReceiver  *GameStateReceiver
 	playerName     string
+	usernameInput  string
 	roomID         string
 	cursor         int
 	choices        []string
 	err            error
 	gameStarted    bool
 	statusMessage  string
+
+	// Avatar customization
+	avatar         Avatar
+	avatarCursor   int // which row (0=head, 1=torso, 2=legs)
+
+	// Terminal dimensions
+	width          int
+	height         int
 }
 
 // NewModel creates a new Bubble Tea model
 func NewModel() Model {
 	return Model{
-		viewState: ViewMenu,
-		cursor:    0,
-		choices:   []string{"Join Room", "Create Room", "Quit"},
+		viewState:     ViewUsernameEntry,
+		cursor:        0,
+		usernameInput: "",
+		avatar: Avatar{
+			HeadIndex:  0,
+			TorsoIndex: 0,
+			LegsIndex:  0,
+		},
+		avatarCursor: 0,
+		width:        80,
+		height:       24,
 	}
+}
+
+// NewModelWithView creates a model starting at a specific view (for testing)
+func NewModelWithView(view ViewState) Model {
+	m := NewModel()
+	m.viewState = view
+	// Set some defaults for testing
+	if view == ViewMainGame {
+		m.playerName = "TestUser"
+	}
+	return m
 }
 
 // Init initializes the model
@@ -48,14 +205,19 @@ func (m Model) Init() tea.Cmd {
 // Update handles messages and updates the model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.viewState {
-		case ViewMenu:
-			return m.updateMenu(msg)
-		case ViewLobby:
-			return m.updateLobby(msg)
-		case ViewGame:
-			return m.updateGame(msg)
+		case ViewUsernameEntry:
+			return m.updateUsernameEntry(msg)
+		case ViewAvatarCustomization:
+			return m.updateAvatarCustomization(msg)
+		case ViewMainGame:
+			return m.updateMainGame(msg)
 		}
 
 	case connectionMsg:
@@ -76,124 +238,108 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateMenu handles menu view updates
-func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// updateUsernameEntry handles username entry screen
+func (m Model) updateUsernameEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "q":
+	case "ctrl+c", "esc":
+		return m, tea.Quit
+
+	case "enter":
+		if len(m.usernameInput) > 0 {
+			m.playerName = m.usernameInput
+			m.viewState = ViewAvatarCustomization
+		}
+		return m, nil
+
+	case "backspace":
+		if len(m.usernameInput) > 0 {
+			m.usernameInput = m.usernameInput[:len(m.usernameInput)-1]
+		}
+
+	default:
+		// Add character to username (limit to 20 chars)
+		if len(msg.String()) == 1 && len(m.usernameInput) < 20 {
+			m.usernameInput += msg.String()
+		}
+	}
+
+	return m, nil
+}
+
+// updateAvatarCustomization handles avatar customization screen
+func (m Model) updateAvatarCustomization(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "esc":
 		return m, tea.Quit
 
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if m.avatarCursor > 0 {
+			m.avatarCursor--
 		}
 
 	case "down", "j":
-		if m.cursor < len(m.choices)-1 {
-			m.cursor++
+		if m.avatarCursor < 2 {
+			m.avatarCursor++
+		}
+
+	case "left", "h":
+		// Cycle through options for current row
+		switch m.avatarCursor {
+		case 0: // Head
+			m.avatar.HeadIndex--
+			if m.avatar.HeadIndex < 0 {
+				m.avatar.HeadIndex = len(HeadOptions) - 1
+			}
+		case 1: // Torso
+			m.avatar.TorsoIndex--
+			if m.avatar.TorsoIndex < 0 {
+				m.avatar.TorsoIndex = len(TorsoOptions) - 1
+			}
+		case 2: // Legs
+			m.avatar.LegsIndex--
+			if m.avatar.LegsIndex < 0 {
+				m.avatar.LegsIndex = len(LegOptions) - 1
+			}
+		}
+
+	case "right", "l":
+		// Cycle through options for current row
+		switch m.avatarCursor {
+		case 0: // Head
+			m.avatar.HeadIndex = (m.avatar.HeadIndex + 1) % len(HeadOptions)
+		case 1: // Torso
+			m.avatar.TorsoIndex = (m.avatar.TorsoIndex + 1) % len(TorsoOptions)
+		case 2: // Legs
+			m.avatar.LegsIndex = (m.avatar.LegsIndex + 1) % len(LegOptions)
 		}
 
 	case "enter":
-		switch m.cursor {
-		case 0: // Join Room
-			m.viewState = ViewLobby
-			m.roomID = "default-room"
-			m.playerName = "Player1"
-			return m, connectToServer("ws://localhost:8080/ws", m.roomID, m.playerName)
-
-		case 1: // Create Room
-			m.viewState = ViewLobby
-			m.roomID = "new-room"
-			m.playerName = "Host"
-			return m, connectToServer("ws://localhost:8080/ws", m.roomID, m.playerName)
-
-		case 2: // Quit
-			return m, tea.Quit
-		}
-	}
-
-	return m, nil
-}
-
-// updateLobby handles lobby view updates
-func (m Model) updateLobby(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c", "q":
-		if m.wsClient != nil {
-			m.wsClient.Close()
-		}
-		return m, tea.Quit
-
-	case "g":
-		// Start game (transition to termloop)
-		m.viewState = ViewGame
-		m.gameStarted = true
-		m.statusMessage = "Game started! Use arrow keys to move, 'q' to quit"
-		return m, nil
-
-	case "b":
-		// Back to menu
-		if m.wsClient != nil {
-			m.wsClient.Close()
-		}
-		m.viewState = ViewMenu
-		m.wsClient = nil
+		// Confirm avatar and go to main game
+		m.viewState = ViewMainGame
 		return m, nil
 	}
 
 	return m, nil
 }
 
-// updateGame handles game view updates
-func (m Model) updateGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// updateMainGame handles main game screen
+func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "q":
+	case "ctrl+c", "esc":
 		if m.wsClient != nil {
 			m.wsClient.Close()
 		}
 		return m, tea.Quit
 
-	case "b":
-		// Back to lobby
-		m.viewState = ViewLobby
-		m.gameStarted = false
-		return m, nil
-
-	// Arrow keys for movement
+	// Movement keys (placeholder for now)
 	case "up", "w":
-		if m.wsClient != nil {
-			state := m.stateReceiver.GetState()
-			for _, player := range state.Players {
-				m.wsClient.SendMove(player.X, player.Y-1, "up")
-				break
-			}
-		}
-
+		// TODO: Send movement to server
 	case "down", "s":
-		if m.wsClient != nil {
-			state := m.stateReceiver.GetState()
-			for _, player := range state.Players {
-				m.wsClient.SendMove(player.X, player.Y+1, "down")
-				break
-			}
-		}
-
+		// TODO: Send movement to server
 	case "left", "a":
-		if m.wsClient != nil {
-			state := m.stateReceiver.GetState()
-			for _, player := range state.Players {
-				m.wsClient.SendMove(player.X-1, player.Y, "left")
-				break
-			}
-		}
-
+		// TODO: Send movement to server
 	case "right", "d":
-		if m.wsClient != nil {
-			state := m.stateReceiver.GetState()
-			for _, player := range state.Players {
-				m.wsClient.SendMove(player.X+1, player.Y, "right")
-				break
-			}
-		}
+		// TODO: Send movement to server
 	}
 
 	return m, nil
@@ -202,85 +348,245 @@ func (m Model) updateGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // View renders the current view
 func (m Model) View() string {
 	switch m.viewState {
-	case ViewMenu:
-		return m.viewMenu()
-	case ViewLobby:
-		return m.viewLobby()
-	case ViewGame:
-		return m.viewGame()
+	case ViewUsernameEntry:
+		return m.viewUsernameEntry()
+	case ViewAvatarCustomization:
+		return m.viewAvatarCustomization()
+	case ViewMainGame:
+		return m.viewMainGame()
 	}
 	return ""
 }
 
-// viewMenu renders the menu view
-func (m Model) viewMenu() string {
-	s := "Welcome to the Game!\n\n"
+// viewUsernameEntry renders the username entry screen
+func (m Model) viewUsernameEntry() string {
+	// Title
+	title := titleStyle.Render("🎮 WELCOME TO ALWAYS AT MORG")
+	subtitle := subtitleStyle.Render("A Multiplayer Terminal Adventure")
 
-	for i, choice := range m.choices {
-		cursor := " "
-		if m.cursor == i {
-			cursor = ">"
-		}
-		s += fmt.Sprintf("%s %s\n", cursor, choice)
+	// Prompt
+	promptText := lipgloss.NewStyle().
+		Foreground(secondaryColor).
+		Margin(2, 0).
+		Render("Enter your username:")
+
+	// Input field with cursor
+	inputText := m.usernameInput
+	if len(inputText) == 0 {
+		inputText = mutedStyle.Render("type here...")
+	} else {
+		inputText = highlightStyle.Render(inputText) + cursorStyle.Render("▊")
 	}
+	inputField := inputBoxStyle.Render(inputText)
 
-	s += "\nUse arrow keys to navigate, Enter to select\n"
+	// Main content (title + input)
+	mainContent := lipgloss.JoinVertical(
+		lipgloss.Center,
+		title,
+		subtitle,
+		"\n\n\n",
+		promptText,
+		inputField,
+	)
 
-	if m.err != nil {
-		s += fmt.Sprintf("\nError: %v\n", m.err)
-	}
+	// Instructions at the bottom
+	instructions := instructionStyle.Render(
+		"Press " + highlightStyle.Render("ENTER") + " to continue  •  " +
+			mutedStyle.Render("ESC to quit"))
 
-	return s
+	// Calculate positions - main content in center, instructions at bottom
+	centeredMain := lipgloss.Place(m.width, m.height-5, lipgloss.Center, lipgloss.Center, mainContent)
+	bottomInstructions := lipgloss.Place(m.width, 3, lipgloss.Center, lipgloss.Bottom, instructions)
+
+	// Combine
+	return centeredMain + "\n" + bottomInstructions
 }
 
-// viewLobby renders the lobby view
-func (m Model) viewLobby() string {
-	var s strings.Builder
+// viewAvatarCustomization renders the avatar customization screen
+func (m Model) viewAvatarCustomization() string {
+	// Title
+	title := titleStyle.Render(fmt.Sprintf("✨ CUSTOMIZE YOUR AVATAR, %s", strings.ToUpper(m.playerName)))
 
-	s.WriteString(fmt.Sprintf("Lobby: %s\n", m.roomID))
-	s.WriteString(fmt.Sprintf("Player: %s\n\n", m.playerName))
+	// Avatar preview with cursor indicators
+	var avatarLines []string
+	avatarParts := strings.Split(m.avatar.Render(), "\n")
+	rowLabels := []string{"HEAD", "TORSO", "LEGS"}
 
-	if m.statusMessage != "" {
-		s.WriteString(fmt.Sprintf("Status: %s\n\n", m.statusMessage))
+	for i, part := range avatarParts {
+		cursor := "  "
+		if m.avatarCursor == i {
+			cursor = cursorStyle.Render("▶ ")
+		} else {
+			cursor = mutedStyle.Render("  ")
+		}
+
+		label := lipgloss.NewStyle().
+			Foreground(accentColor).
+			Width(8).
+			Align(lipgloss.Right).
+			Render(rowLabels[i] + ":")
+
+		avatarPart := highlightStyle.Render(part)
+		if m.avatarCursor != i {
+			avatarPart = optionStyle.Render(part)
+		}
+
+		avatarLines = append(avatarLines, cursor+label+"  "+avatarPart)
 	}
 
-	if m.stateReceiver != nil {
-		state := m.stateReceiver.GetState()
-		s.WriteString("Players in room:\n")
-		for _, player := range state.Players {
-			s.WriteString(fmt.Sprintf("  - %s (Score: %d)\n", player.Name, player.Score))
+	preview := avatarBoxStyle.Render(strings.Join(avatarLines, "\n"))
+
+	// Options for current part
+	var optionsDisplay string
+	var currentOptions []string
+	var currentIndex int
+
+	switch m.avatarCursor {
+	case 0:
+		currentOptions = HeadOptions
+		currentIndex = m.avatar.HeadIndex
+	case 1:
+		currentOptions = TorsoOptions
+		currentIndex = m.avatar.TorsoIndex
+	case 2:
+		currentOptions = LegOptions
+		currentIndex = m.avatar.LegsIndex
+	}
+
+	var optionParts []string
+	for i, opt := range currentOptions {
+		if i == currentIndex {
+			optionParts = append(optionParts, selectedOptionStyle.Render("「"+opt+"」"))
+		} else {
+			optionParts = append(optionParts, optionStyle.Render(" "+opt+" "))
 		}
 	}
+	optionsDisplay = strings.Join(optionParts, " ")
 
-	s.WriteString("\nPress 'g' to start game, 'b' to go back, 'q' to quit\n")
+	optionsBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(mutedColor).
+		Padding(1, 2).
+		Width(60).
+		Align(lipgloss.Center).
+		Render(optionsDisplay)
 
-	return s.String()
+	// Main content
+	mainContent := lipgloss.JoinVertical(
+		lipgloss.Center,
+		title,
+		"\n\n",
+		preview,
+		"\n\n",
+		optionsBox,
+	)
+
+	// Instructions at the bottom
+	instructions := instructionStyle.Render(
+		highlightStyle.Render("↑↓") + " Select  " +
+			highlightStyle.Render("←→") + " Change  " +
+			highlightStyle.Render("ENTER") + " Confirm  •  " +
+			mutedStyle.Render("ESC Quit"))
+
+	// Calculate positions
+	centeredMain := lipgloss.Place(m.width, m.height-5, lipgloss.Center, lipgloss.Center, mainContent)
+	bottomInstructions := lipgloss.Place(m.width, 3, lipgloss.Center, lipgloss.Bottom, instructions)
+
+	return centeredMain + "\n" + bottomInstructions
 }
 
-// viewGame renders the game view
-func (m Model) viewGame() string {
-	var s strings.Builder
+// viewMainGame renders the split-screen main game view
+func (m Model) viewMainGame() string {
+	// Calculate dimensions (70% game, 30% chat)
+	gameWidth := int(float64(m.width) * 0.7)
+	chatWidth := m.width - gameWidth - 10 // Account for borders and margins
+	contentHeight := m.height - 10        // Leave more room for spacing
 
-	s.WriteString("Game View\n")
-	s.WriteString("==========\n\n")
-
-	if m.stateReceiver != nil {
-		state := m.stateReceiver.GetState()
-
-		// Simple ASCII representation
-		s.WriteString(fmt.Sprintf("Tick: %d\n\n", state.Tick))
-
-		s.WriteString("Players:\n")
-		for _, player := range state.Players {
-			s.WriteString(fmt.Sprintf("  %s @ (%d, %d) - Color: %s, Score: %d\n",
-				player.Name, player.X, player.Y, player.Color, player.Score))
-		}
+	if contentHeight < 10 {
+		contentHeight = 10
 	}
 
-	s.WriteString("\nUse WASD or arrow keys to move, 'b' to return to lobby, 'q' to quit\n")
-	s.WriteString("\nNote: For full game rendering, this view should be replaced with Termloop\n")
+	// Game section
+	gameTitle := lipgloss.NewStyle().
+		Foreground(primaryColor).
+		Bold(true).
+		Width(gameWidth).
+		Align(lipgloss.Center).
+		Render("🎮 GAME WORLD")
 
-	return s.String()
+	gamePlaceholder := centerStyle.
+		Width(gameWidth).
+		Height(contentHeight).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render("COMING SOON\n\n" + mutedStyle.Render("(Termloop will render here)"))
+
+	gameContent := lipgloss.JoinVertical(
+		lipgloss.Left,
+		gameTitle,
+		gamePlaceholder,
+	)
+
+	gameBox := gameBoxStyle.
+		Width(gameWidth).
+		Height(contentHeight + 3).
+		Render(gameContent)
+
+	// Chat section
+	chatTitle := lipgloss.NewStyle().
+		Foreground(accentColor).
+		Bold(true).
+		Width(chatWidth).
+		Align(lipgloss.Center).
+		Render("💬 CHAT")
+
+	chatPlaceholder := centerStyle.
+		Width(chatWidth).
+		Height(contentHeight).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render("COMING SOON\n\n" + mutedStyle.Render("(Chat messages here)"))
+
+	chatContent := lipgloss.JoinVertical(
+		lipgloss.Left,
+		chatTitle,
+		chatPlaceholder,
+	)
+
+	chatBox := chatBoxStyle.
+		Width(chatWidth).
+		Height(contentHeight + 3).
+		Render(chatContent)
+
+	// Join game and chat horizontally
+	mainContent := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		gameBox,
+		chatBox,
+	)
+
+	// Status bar at the bottom
+	playerInfo := lipgloss.NewStyle().
+		Foreground(successColor).
+		Bold(true).
+		Render("Player: " + m.playerName)
+
+	avatarDisplay := lipgloss.NewStyle().
+		Foreground(secondaryColor).
+		Render(strings.ReplaceAll(m.avatar.Render(), "\n", " "))
+
+	controls := mutedStyle.Render("WASD/Arrows: Move  •  ESC: Quit")
+
+	statusBar := lipgloss.NewStyle().
+		Foreground(fgColor).
+		Width(m.width).
+		Padding(1, 0).
+		Align(lipgloss.Center).
+		Render(playerInfo + "  " + avatarDisplay + "  •  " + controls)
+
+	// Calculate positions
+	centeredMain := lipgloss.Place(m.width, m.height-4, lipgloss.Center, lipgloss.Top, mainContent)
+	bottomStatus := lipgloss.Place(m.width, 4, lipgloss.Center, lipgloss.Bottom, statusBar)
+
+	return centeredMain + bottomStatus
 }
 
 // Messages for Bubble Tea
