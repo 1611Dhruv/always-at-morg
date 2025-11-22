@@ -45,21 +45,20 @@ func (m Model) updateUsernameEntry(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // viewUsernameEntry renders the username entry screen
 func (m Model) viewUsernameEntry() string {
 	// Title
-	title := titleStyle.Render("🎮 WELCOME TO ALWAYS AT MORG")
-	subtitle := subtitleStyle.Render("A Multiplayer Terminal Adventure")
+	title := titleStyle.Render("ALWAYS AT MORG")
 
 	// Prompt
 	promptText := lipgloss.NewStyle().
 		Foreground(secondaryColor).
-		Margin(2, 0).
-		Render("Enter your username:")
+		Margin(1, 0).
+		Render("Enter username:")
 
 	// Input field with cursor
 	inputText := m.usernameInput
 	if len(inputText) == 0 {
-		inputText = mutedStyle.Render("type here...")
+		inputText = mutedStyle.Render("...")
 	} else {
-		inputText = highlightStyle.Render(inputText) + cursorStyle.Render("▊")
+		inputText = highlightStyle.Render(inputText) + cursorStyle.Render("|")
 	}
 	inputField := inputBoxStyle.Render(inputText)
 
@@ -67,20 +66,17 @@ func (m Model) viewUsernameEntry() string {
 	mainContent := lipgloss.JoinVertical(
 		lipgloss.Center,
 		title,
-		subtitle,
-		"\n\n\n",
+		"\n",
 		promptText,
 		inputField,
 	)
 
 	// Instructions at the bottom
-	instructions := instructionStyle.Render(
-		"Press " + highlightStyle.Render("ENTER") + " to continue  •  " +
-			mutedStyle.Render("ESC to quit"))
+	instructions := mutedStyle.Render("ENTER to continue  •  ESC to quit")
 
 	// Calculate positions - main content in center, instructions at bottom
-	centeredMain := lipgloss.Place(m.width, m.height-5, lipgloss.Center, lipgloss.Center, mainContent)
-	bottomInstructions := lipgloss.Place(m.width, 3, lipgloss.Center, lipgloss.Bottom, instructions)
+	centeredMain := lipgloss.Place(m.width, m.height-3, lipgloss.Center, lipgloss.Center, mainContent)
+	bottomInstructions := lipgloss.Place(m.width, 2, lipgloss.Center, lipgloss.Bottom, instructions)
 
 	// Combine
 	return centeredMain + "\n" + bottomInstructions

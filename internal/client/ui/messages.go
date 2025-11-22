@@ -23,6 +23,9 @@ type connectionEventMsg struct {
 // tickMsg is sent periodically for animations
 type tickMsg time.Time
 
+// retryMsg is sent after a delay to trigger reconnection
+type retryMsg struct{}
+
 // connectCmd attempts to connect using the existing connection manager
 func connectCmd(mgr *connection.Manager) tea.Cmd {
 	return func() tea.Msg {
@@ -32,6 +35,19 @@ func connectCmd(mgr *connection.Manager) tea.Cmd {
 		}
 		return connectionSuccessMsg{}
 	}
+}
+
+// retryConnectCmd waits for a delay before triggering a reconnection attempt
+func retryConnectCmd(attempt int) tea.Cmd {
+	// Exponential backoff: 1s, 2s, 4s, 8s, 16s (capped at 10s)
+	delay := time.Duration(1<<uint(attempt-1)) * time.Second
+	if delay > 10*time.Second {
+		delay = 10 * time.Second
+	}
+
+	return tea.Tick(delay, func(t time.Time) tea.Msg {
+		return retryMsg{}
+	})
 }
 
 // tickCmd returns a command that sends tick messages for animations

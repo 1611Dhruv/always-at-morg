@@ -15,6 +15,14 @@ const (
 	ViewMainGame
 )
 
+// ChatMode represents the current chat mode
+type ChatMode int
+
+const (
+	ChatModeGlobal ChatMode = iota
+	ChatModePrivate
+)
+
 // Model is the main Bubble Tea model
 type Model struct {
 	viewState ViewState
@@ -29,10 +37,21 @@ type Model struct {
 	err           error
 
 	// Loading screen
-	loadingDots int
-	serverURL   string
-	roomID      string // Room to join
-	userName    string
+	loadingDots      int
+	serverURL        string
+	roomID           string // Room to join
+	userName         string
+	reconnectAttempt int    // Current reconnection attempt (0-5)
+	maxReconnects    int    // Maximum reconnection attempts
+	waitingToRetry   bool   // True when waiting for retry delay
+
+	// Chat system
+	chatMode        ChatMode
+	chatTarget      string   // Username for private chat
+	announcements   []string // Server-wide announcements
+	chatMessages    []string // Chat messages (global or private)
+	chatInput       string   // Current chat input
+	chatInputActive bool     // True when typing in chat
 }
 
 // NewModel creates a new Bubble Tea model with a connection manager
@@ -49,17 +68,25 @@ func NewModel(serverURL string) Model {
 	})
 
 	return Model{
-		viewState:     ViewLoading,
-		connMgr:       connMgr,
-		eventChan:     eventChan,
-		usernameInput: "",
-		avatar:        NewAvatar(),
-		avatarCursor:  0,
-		width:         80,
-		height:        24,
-		serverURL:     serverURL,
-		roomID:        "default-room", // Default room
-		loadingDots:   0,
+		viewState:        ViewLoading,
+		connMgr:          connMgr,
+		eventChan:        eventChan,
+		usernameInput:    "",
+		avatar:           NewAvatar(),
+		avatarCursor:     0,
+		width:            80,
+		height:           24,
+		serverURL:        serverURL,
+		roomID:           "default-room", // Default room
+		loadingDots:      0,
+		reconnectAttempt: 0,
+		maxReconnects:    5,
+		chatMode:         ChatModeGlobal,
+		chatTarget:       "",
+		announcements:    []string{"Welcome to Always at Morg!"},
+		chatMessages:     []string{},
+		chatInput:        "",
+		chatInputActive:  false,
 	}
 }
 
@@ -110,12 +137,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case connectionSuccessMsg:
 		// Connection successful, move to username entry
+		m.reconnectAttempt = 0 // Reset retry counter
+		m.waitingToRetry = false
+		m.err = nil
 		m.viewState = ViewUsernameEntry
 		return m, nil
 
 	case connectionErrorMsg:
-		// Connection failed, stay on loading screen with error
+		// Connection failed
 		m.err = msg.err
+		m.reconnectAttempt++
+
+		// Retry if we haven't exceeded max attempts
+		if m.reconnectAttempt < m.maxReconnects {
+			// Wait before retrying (exponential backoff)
+			m.waitingToRetry = true
+			return m, tea.Batch(
+				tickCmd(),
+				retryConnectCmd(m.reconnectAttempt),
+			)
+		}
+
+		// Max retries exceeded, stay on loading screen with error
+		m.waitingToRetry = false
+		return m, nil
+
+	case retryMsg:
+		// Time to retry connection after delay
+		if m.viewState == ViewLoading && m.reconnectAttempt < m.maxReconnects {
+			m.waitingToRetry = false
+			return m, connectCmd(m.connMgr)
+		}
 		return m, nil
 
 	case connectionEventMsg:

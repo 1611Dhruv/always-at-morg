@@ -53,6 +53,9 @@ func (m *Manager) Connect() error {
 	m.mu.Lock()
 	m.conn = conn
 	m.connected = true
+	// Create a fresh done channel for this connection attempt
+	// This allows reconnection to work properly
+	m.done = make(chan struct{})
 	m.mu.Unlock()
 
 	// Start read/write loops
@@ -74,8 +77,18 @@ func (m *Manager) Disconnect() {
 
 	m.connected = false
 
+	// Close done channel to signal readPump to stop
+	if m.done != nil {
+		select {
+		case <-m.done:
+			// Already closed
+		default:
+			close(m.done)
+		}
+	}
+
+	// Close the connection
 	if m.conn != nil {
-		close(m.done)
 		m.conn.Close()
 	}
 }
@@ -103,6 +116,8 @@ func (m *Manager) SendOnboardResponse(playerName string, avatar []int) error {
 		Avatar: avatar,
 	})
 }
+
+// Chat messages
 
 ////////////////////////////////////////////
 

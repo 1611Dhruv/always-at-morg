@@ -80,7 +80,7 @@ func (m Model) updateAvatarCustomization(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // viewAvatarCustomization renders the avatar customization screen
 func (m Model) viewAvatarCustomization() string {
 	// Title
-	title := titleStyle.Render(fmt.Sprintf("✨ CUSTOMIZE YOUR AVATAR, %s", m.userName))
+	title := titleStyle.Render(fmt.Sprintf("CUSTOMIZE AVATAR - %s", strings.ToUpper(m.userName)))
 
 	// Avatar preview with cursor indicators
 	var avatarLines []string
@@ -90,7 +90,7 @@ func (m Model) viewAvatarCustomization() string {
 	for i, part := range avatarParts {
 		cursor := "  "
 		if m.avatarCursor == i {
-			cursor = cursorStyle.Render("▶ ")
+			cursor = cursorStyle.Render("> ")
 		} else {
 			cursor = mutedStyle.Render("  ")
 		}
@@ -131,7 +131,7 @@ func (m Model) viewAvatarCustomization() string {
 	var optionParts []string
 	for i, opt := range currentOptions {
 		if i == currentIndex {
-			optionParts = append(optionParts, selectedOptionStyle.Render("「"+opt+"」"))
+			optionParts = append(optionParts, selectedOptionStyle.Render("["+opt+"]"))
 		} else {
 			optionParts = append(optionParts, optionStyle.Render(" "+opt+" "))
 		}
@@ -150,22 +150,18 @@ func (m Model) viewAvatarCustomization() string {
 	mainContent := lipgloss.JoinVertical(
 		lipgloss.Center,
 		title,
-		"\n\n",
+		"\n",
 		preview,
-		"\n\n",
+		"\n",
 		optionsBox,
 	)
 
 	// Instructions at the bottom
-	instructions := instructionStyle.Render(
-		highlightStyle.Render("↑↓") + " Select  " +
-			highlightStyle.Render("←→") + " Change  " +
-			highlightStyle.Render("ENTER") + " Confirm  •  " +
-			mutedStyle.Render("ESC Quit"))
+	instructions := mutedStyle.Render("Arrows to navigate  •  ENTER to confirm  •  ESC to quit")
 
 	// Calculate positions
-	centeredMain := lipgloss.Place(m.width, m.height-5, lipgloss.Center, lipgloss.Center, mainContent)
-	bottomInstructions := lipgloss.Place(m.width, 3, lipgloss.Center, lipgloss.Bottom, instructions)
+	centeredMain := lipgloss.Place(m.width, m.height-3, lipgloss.Center, lipgloss.Center, mainContent)
+	bottomInstructions := lipgloss.Place(m.width, 2, lipgloss.Center, lipgloss.Bottom, instructions)
 
 	return centeredMain + "\n" + bottomInstructions
 }
