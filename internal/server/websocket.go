@@ -28,20 +28,21 @@ var upgrader = websocket.Upgrader{
 
 // Client represents a WebSocket client
 type Client struct {
-	ID   string
-	Name string
-	Room *Room
-	conn *websocket.Conn
-	send chan []byte
+	ID       string
+	Name     string
+	Room     *Room
+	conn     *websocket.Conn
+	send     chan []byte
 	Username string
-	Avatar string
-	inGame bool
+	Avatar   string
+	inGame   bool
 }
 
 // Server represents the WebSocket server
 type Server struct {
 	roomManager *RoomManager
 	userManager *UserManager
+	chatManager *ChatManager
 }
 
 // NewServer creates a new WebSocket server
@@ -49,6 +50,7 @@ func NewServer() *Server {
 	return &Server{
 		roomManager: NewRoomManager(),
 		userManager: NewUserManager(),
+		chatManager: NewChatManager(),
 	}
 }
 
@@ -181,7 +183,6 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 
 		log.Printf("New user %s onboarded with avatar %s", c.Username, c.Avatar)
 
-
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -223,6 +224,7 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		if c.Room != nil {
 			c.Room.unregister <- c
 			c.Room = nil
+			// TODO: mark user not in game so they're not rendered
 		}
 
 	case protocol.MsgPlayerMove:
@@ -247,5 +249,53 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		}
 		// Handle custom input actions here
 		log.Printf("Player %s action: %s", c.Name, payload.Action)
+
+	case protocol.MsgGlobalChat:
+		var payload protocol.GlobalChatPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling global chat payload: %v", err)
+			return
+		}
+
+		// Handle global chat through ChatManager
+		s.chatManager.HandleGlobalChat(c, payload.Message, c.Room)
+
+	case protocol.MsgAnnouncement:
+		var payload protocol.AnnouncementPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling announcement payload: %v", err)
+			return
+		}
+
+		// Handle global chat through ChatManager
+		s.chatManager.HandleAnnouncement(payload.Message, c.Room)
+
+	case protocol.MsgChatMessage:
+		var payload protocol.ChatMessagePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling chat message payload: %v", err)
+			return
+		}
+
+		s.chatManager.HandleDirectMessage(c, payload.ToPlayerID, payload.Message, c.Room)
+
+	case protocol.MsgChatRequest:
+		var payload protocol.ChatReqestPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling chat request payload: %v", err)
+			return
+		}
+
+		s.chatManager.HandleChatRequest(c, payload.ToPlayerID, payload.Message, c.Room)
+
+	case protocol.MsgChatResponse:
+		var payload protocol.ChatResponsePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling chat response payload: %v", err)
+			return
+		}
+
+		s.chatManager.HandleChatResponse(payload.FromPlayerID, payload.ToPlayerID, payload.Accepted)
+
 	}
 }

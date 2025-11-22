@@ -13,22 +13,24 @@ const (
 	MsgPlayerInput MessageType = "player_input"
 	MsgOnboard   MessageType = "onboard" //client onboarding message
 
+	MsgChatRequest MessageType = "chat_request"
+	MsgChatMessage MessageType = "chat_message"
+	MsgGlobalChat MessageType = "global_chat_message"
+	MsgAnnouncement MessageType = "announcement"
+
 	// Server -> Client
-	MsgOnboardRequest MessageType = "onboard_request" //server requests onboarding for new user
 	MsgRoomJoined  MessageType = "room_joined" //server confirming
 	MsgRoomLeft    MessageType = "room_left"
 	MsgGameState   MessageType = "game_state"
 	MsgPlayerJoined MessageType = "player_joined"
 	MsgPlayerLeft   MessageType = "player_left"
 	MsgError       MessageType = "error"
+	MsgOnboardRequest MessageType = "onboard_request" //server requests onboarding for new user
 
 	//chat and interaction
-	MsgChatRequest MessageType = "chat_request"
 	MsgChatResponse MessageType = "chat_response"
-	MsgChatMessage MessageType = "chat_message"
-	MsgGlobalChat MessageType = "global_chat_message"
-	MsgAnnouncement MessageType = "announcement"
 	MsgNearbyPlayers MessageType = "nearby_players"
+
 )
 
 // Message is the wrapper for all WebSocket messages
@@ -87,8 +89,9 @@ type ChatReqestPayload struct {
 }
 //accept/decline chat interaction
 type ChatResponsePayload struct {
-	RequestID   string `json:"request_id"`
-	Accepted    bool   `json:"accepted"`
+	FromPlayerID string `json:"from_player_id"` // Who initiated the request
+	ToPlayerID   string `json:"to_player_id"`   // Who is responding
+	Accepted     bool   `json:"accepted"`
 }
 //chat message payload for sending messages between players
 type ChatMessagePayload struct {
