@@ -14,6 +14,7 @@ const (
 	MsgOnboard   MessageType = "onboard" //client onboarding message
 
 	// Server -> Client
+	MsgOnboardRequest MessageType = "onboard_request" //server requests onboarding for new user
 	MsgRoomJoined  MessageType = "room_joined" //server confirming
 	MsgRoomLeft    MessageType = "room_left"
 	MsgGameState   MessageType = "game_state"
@@ -30,8 +31,9 @@ type Message struct {
 
 // JoinRoomPayload is sent when a player wants to join a room
 type JoinRoomPayload struct {
-	RoomID     string `json:"room_id"`
-	PlayerName string `json:"player_name"`
+	Username string `json:"username,omitempty"` // If provided, skip onboarding
+	Avatar   string `json:"avatar,omitempty"`   // If provided with username, skip onboarding
+	RoomID   string `json:"room_id"`
 }
 
 // RoomJoinedPayload is sent when a player successfully joins a room
@@ -94,10 +96,10 @@ type ErrorPayload struct {
 	Message string `json:"message"`
 }
 
-type OnboardPayload struct {	
-	Name string `json:"name"`
+type OnboardPayload struct {
+	Name     string `json:"name"`
 	Username string `json:"username"`
-	Avatar string `json:"avatar"` // URL or base64
+	Avatar   string `json:"avatar"` // Color for now
 }
 
 

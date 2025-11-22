@@ -33,17 +33,22 @@ type Client struct {
 	Room *Room
 	conn *websocket.Conn
 	send chan []byte
+	Username string
+	Avatar string
+	inGame bool
 }
 
 // Server represents the WebSocket server
 type Server struct {
 	roomManager *RoomManager
+	userManager *UserManager
 }
 
 // NewServer creates a new WebSocket server
 func NewServer() *Server {
 	return &Server{
 		roomManager: NewRoomManager(),
+		userManager: NewUserManager(),
 	}
 }
 
@@ -145,16 +150,70 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 	}
 
 	switch msg.Type {
+	case protocol.MsgOnboard:
+		var payload protocol.OnboardPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling onboard payload: %v", err)
+			return
+		}
+
+		// Check if username is already taken
+		if s.userManager.IsUsernameTaken(payload.Username) {
+			errMsg, _ := protocol.EncodeMessage(protocol.MsgError, protocol.ErrorPayload{
+				Message: "Username already taken",
+			})
+			c.send <- errMsg
+			// Request onboarding again
+			onboardRequest, _ := protocol.EncodeMessage(protocol.MsgOnboardRequest, nil)
+			c.send <- onboardRequest
+			return
+		}
+
+		// Create user in UserManager
+		user, _ := s.userManager.GetOrCreateUserByUsername(payload.Username, payload.Avatar)
+
+		// Set client fields
+		c.Username = user.Username
+		c.Avatar = user.Avatar
+		c.Name = payload.Name
+
+		// Auto-join main room
+		room := s.roomManager.GetOrCreateRoom("main")
+		c.Room = room
+		c.inGame = true
+		room.register <- c
+
+
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			log.Printf("Error unmarshaling join room payload: %v", err)
 			return
 		}
-		c.Name = payload.PlayerName
-		room := s.roomManager.GetOrCreateRoom(payload.RoomID)
-		c.Room = room
-		room.register <- c
+
+		// Check if username and avatar provided (returning user with persisted data)
+		if payload.Username != "" && payload.Avatar != "" {
+			// Get or create user (preserves username uniqueness)
+			user, isReturning := s.userManager.GetOrCreateUserByUsername(payload.Username, payload.Avatar)
+
+			// Set client fields
+			c.Username = user.Username
+			c.Avatar = user.Avatar
+			c.Name = user.Username
+
+			// Join room
+			room := s.roomManager.GetOrCreateRoom(payload.RoomID)
+			c.Room = room
+			c.inGame = true
+			room.register <- c
+
+			log.Printf("User %s joined (returning: %v)", user.Username, isReturning)
+			return
+		}
+
+		// New user - request onboarding
+		onboardRequest, _ := protocol.EncodeMessage(protocol.MsgOnboardRequest, nil)
+		c.send <- onboardRequest
 
 	case protocol.MsgLeaveRoom:
 		if c.Room != nil {
