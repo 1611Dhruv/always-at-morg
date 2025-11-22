@@ -50,8 +50,8 @@ func (um *UserManager) GetOrCreateUserByUsername(username, avatar string) (*User
 	return user, false // new user
 }
 
-// IsUsernameTaken checks if a username is already in use
-func (um *UserManager) IsUsernameTaken(username string) bool {
+// DoesUserExist checks if a username is already in use
+func (um *UserManager) DoesUserExist(username string) bool {
 	um.mu.RLock()
 	defer um.mu.RUnlock()
 

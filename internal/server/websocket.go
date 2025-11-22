@@ -157,23 +157,19 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			return
 		}
 
-		// Check if username is already taken
-		if s.userManager.IsUsernameTaken(payload.Username) {
+		// Username should already be set from MsgJoinRoom
+		if c.Username == "" {
 			errMsg, _ := protocol.EncodeMessage(protocol.MsgError, protocol.ErrorPayload{
-				Message: "Username already taken",
+				Message: "Invalid onboarding flow - username not set",
 			})
 			c.send <- errMsg
-			// Request onboarding again
-			onboardRequest, _ := protocol.EncodeMessage(protocol.MsgOnboardRequest, nil)
-			c.send <- onboardRequest
 			return
 		}
 
-		// Create user in UserManager
-		user, _ := s.userManager.GetOrCreateUserByUsername(payload.Username, payload.Avatar)
+		// Create user in UserManager with username and avatar
+		user, _ := s.userManager.GetOrCreateUserByUsername(c.Username, payload.Avatar)
 
 		// Set client fields
-		c.Username = user.Username
 		c.Avatar = user.Avatar
 		c.Name = payload.Name
 
@@ -183,6 +179,8 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		c.inGame = true
 		room.register <- c
 
+		log.Printf("New user %s onboarded with avatar %s", c.Username, c.Avatar)
+
 
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
@@ -191,12 +189,12 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			return
 		}
 
-		// Check if username and avatar provided (returning user with persisted data)
-		if payload.Username != "" && payload.Avatar != "" {
-			// Get or create user (preserves username uniqueness)
-			user, isReturning := s.userManager.GetOrCreateUserByUsername(payload.Username, payload.Avatar)
+		// Check if username exists in UserManager
+		if s.userManager.DoesUserExist(payload.Username) {
+			// Returning user - get their profile
+			user, _ := s.userManager.GetOrCreateUserByUsername(payload.Username, "")
 
-			// Set client fields
+			// Set client fields from existing user
 			c.Username = user.Username
 			c.Avatar = user.Avatar
 			c.Name = user.Username
@@ -207,11 +205,12 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			c.inGame = true
 			room.register <- c
 
-			log.Printf("User %s joined (returning: %v)", user.Username, isReturning)
+			log.Printf("Returning user %s joined", user.Username)
 			return
 		}
 
-		// New user - request onboarding
+		// New user - store username and request onboarding for avatar selection
+		c.Username = payload.Username
 		onboardRequest, _ := protocol.EncodeMessage(protocol.MsgOnboardRequest, nil)
 		c.send <- onboardRequest
 
