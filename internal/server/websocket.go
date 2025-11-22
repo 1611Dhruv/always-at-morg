@@ -173,8 +173,8 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		c.Avatar = user.Avatar
 		c.Name = payload.Name
 
-		// Auto-join main room
-		room := s.roomManager.GetOrCreateRoom("main")
+		// Auto-join default room
+		room := s.roomManager.GetOrCreateRoom("0")
 		c.Room = room
 		c.inGame = true
 		room.register <- c
@@ -187,6 +187,11 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			log.Printf("Error unmarshaling join room payload: %v", err)
 			return
+		}
+
+		// Set default room ID if not specified
+		if payload.RoomID == "" {
+			payload.RoomID = "0"
 		}
 
 		// Check if username exists in UserManager
