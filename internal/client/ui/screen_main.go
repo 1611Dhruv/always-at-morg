@@ -84,18 +84,54 @@ func (m Model) renderGamePanel(width, height int) string {
 		Align(lipgloss.Center).
 		Render("🎮 GAME WORLD")
 
-	// TODO: This is where your teammate's termloop/game rendering will go
-	gamePlaceholder := centerStyle.
-		Width(width).
-		Height(height).
-		Align(lipgloss.Center, lipgloss.Center).
-		Render("COMING SOON\n\n" + mutedStyle.Render("(Game renderer will be integrated here)"))
+	// Calculate actual viewport dimensions (accounting for borders and padding)
+	viewportWidth := width - 4
+	viewportHeight := height - 2
+
+	// Render the actual game grid
+	gameGrid := m.renderGameWorld(viewportWidth, viewportHeight)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		gameTitle,
-		gamePlaceholder,
+		gameGrid,
 	)
+}
+
+// renderGameWorld creates a grid representation of the game world
+func (m Model) renderGameWorld(width, height int) string {
+	var builder strings.Builder
+
+	// Initialize GameWorldGrid if not already done
+	if len(m.GameWorldGrid) == 0 || len(m.GameWorldGrid) != height {
+		// This will be updated in the Update() function on WindowSizeMsg
+		// For now, just render empty grid
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				builder.WriteString(".")
+			}
+			if y < height-1 {
+				builder.WriteString("\n")
+			}
+		}
+		return builder.String()
+	}
+
+	// Render the actual grid
+	for y := 0; y < height && y < len(m.GameWorldGrid); y++ {
+		for x := 0; x < width && x < len(m.GameWorldGrid[y]); x++ {
+			if m.GameWorldGrid[y][x] == "" {
+				builder.WriteString(".")
+			} else {
+				builder.WriteString(m.GameWorldGrid[y][x])
+			}
+		}
+		if y < height-1 {
+			builder.WriteString("\n")
+		}
+	}
+
+	return builder.String()
 }
 
 // renderChatPanel renders the chat panel (right 30%)
@@ -110,7 +146,7 @@ func (m Model) renderChatPanel(width, height int) string {
 	// TODO: Chat messages will be rendered here
 	chatPlaceholder := centerStyle.
 		Width(width).
-		Height(height).
+		Height(height-2).
 		Align(lipgloss.Center, lipgloss.Center).
 		Render("COMING SOON\n\n" + mutedStyle.Render("(Chat messages here)"))
 

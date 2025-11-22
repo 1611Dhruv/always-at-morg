@@ -27,9 +27,21 @@ type Model struct {
 	height        int
 	err           error
 
+	GameWorldHeight int        // Height of the game world
+	GameWorldWidth  int        // Width of the game world
+	GameWorldGrid   [][]string // 2D grid representing the game world
+	RoomsGrid       [][]string // 2D grid of RoomCells
+
 	// Loading screen
 	loadingDots int
 	serverURL   string
+
+	// Game state
+	roomID        string
+	cursor        int
+	choices       []string
+	gameStarted   bool
+	statusMessage string
 }
 
 // NewModel creates a new Bubble Tea model
@@ -75,6 +87,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+		// Changes dynamically the game world size based on terminal size
+		m.GameWorldWidth = int(0.8 * float64(msg.Width)) // 80% of terminal width because of chat panel
+		m.GameWorldHeight = msg.Height
+
+		m.GameWorldGrid = make([][]string, m.GameWorldHeight)
+		for i := range m.GameWorldGrid {
+			m.GameWorldGrid[i] = make([]string, m.GameWorldWidth) // populated with tiles and entities later
+		}
+
 		return m, nil
 
 	case tea.KeyMsg:
@@ -91,7 +113,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case connectionSuccessMsg:
-		// Connection successful, move to username entry
 		m.viewState = ViewUsernameEntry
 		return m, nil
 
