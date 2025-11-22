@@ -13,23 +13,24 @@ const (
 	MsgPlayerInput MessageType = "player_input"
 	MsgOnboard     MessageType = "onboard" //client onboarding message
 
-	MsgChatRequest MessageType = "chat_request"
-	MsgChatMessage MessageType = "chat_message"
-	MsgGlobalChat MessageType = "global_chat_message"
+	MsgChatRequest  MessageType = "chat_request"        // start a one to one?
+	MsgChatMessage  MessageType = "chat_message"        // one to one
+	MsgGlobalChat   MessageType = "global_chat_message" // me sending u messaeg?
 	MsgAnnouncement MessageType = "announcement"
 
 	// Server -> Client
-	MsgOnboardRequest MessageType = "onboard_request" //server requests onboarding for new user
-	MsgRoomJoined     MessageType = "room_joined"     //server confirming
-	MsgRoomLeft       MessageType = "room_left"
-	MsgGameState      MessageType = "game_state"
-	MsgPlayerJoined   MessageType = "player_joined"
-	MsgPlayerLeft     MessageType = "player_left"
-	MsgError          MessageType = "error"
+	MsgOnboardRequest     MessageType = "onboard_request" //server requests onboarding for new user
+	MsgRoomJoined         MessageType = "room_joined"     //server confirming
+	MsgRoomLeft           MessageType = "room_left"
+	MsgGameState          MessageType = "game_state"
+	MsgPlayerJoined       MessageType = "player_joined"
+	MsgPlayerLeft         MessageType = "player_left"
+	MsgError              MessageType = "error"
+	MsgGlobalChatMessages MessageType = "global_chat_messages"
 
 	//chat and interaction
-	MsgChatResponse  MessageType = "chat_response"
-	MsgNearbyPlayers MessageType = "nearby_players"
+	MsgChatResponse  MessageType = "chat_response"  // accept/decline chat interaction
+	MsgNearbyPlayers MessageType = "nearby_players" // take lite
 
 )
 
@@ -81,10 +82,9 @@ type ChatMessagePayload struct {
 
 // global chat message payload for messages sent to all players
 type GlobalChatPayload struct {
-	PlayerID   string `json:"player_id"`
-	PlayerName string `json:"player_name"`
-	Message    string `json:"message"`
-	Timestamp  int64  `json:"timestamp"`
+	Username  string `json:"player_id"`
+	Message   string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 // announcement payload for server-wide messages
@@ -101,6 +101,10 @@ type ErrorPayload struct {
 type OnboardPayload struct {
 	Name   string `json:"name"`   // Display name
 	Avatar []int  `json:"avatar"` // Color for now (username already provided in JoinRoom)
+}
+
+type GlobalChatMessagesPayload struct {
+	Messages []GlobalChatPayload `json:"messages"`
 }
 
 // EncodeMessage encodes a message with its payload
