@@ -20,6 +20,14 @@ const (
 	MsgPlayerJoined MessageType = "player_joined"
 	MsgPlayerLeft   MessageType = "player_left"
 	MsgError       MessageType = "error"
+
+	//chat and interaction
+	MsgChatRequest MessageType = "chat_request"
+	MsgChatResponse MessageType = "chat_response"
+	MsgChatMessage MessageType = "chat_message"
+	MsgGlobalChat MessageType = "global_chat_message"
+	MsgAnnouncement MessageType = "announcement"
+	MsgNearbyPlayers MessageType = "nearby_players"
 )
 
 // Message is the wrapper for all WebSocket messages
@@ -70,15 +78,53 @@ type GameState struct {
 	Entities []Entity         `json:"entities,omitempty"`
 	Tick    int64            `json:"tick"`
 }
+//chat request payload for initiating chat interaction
+type ChatReqestPayload struct {
+	FromPlayerID string `json:"from_player_id"`
+	ToPlayerID   string `json:"to_player_id"`
+	Message      string `json:"message"`
+}
+//accept/decline chat interaction
+type ChatResponsePayload struct {
+	RequestID   string `json:"request_id"`
+	Accepted    bool   `json:"accepted"`
+}
+//chat message payload for sending messages between players
+type ChatMessagePayload struct {
+	FromPlayerID string `json:"from_player_id"`
+	ToPlayerID   string `json:"to_player_id"`
+	Message      string `json:"message"`
+	Timestamp	int64  `json:"timestamp"`
+}
+//global chat message payload for messages sent to all players
+type GlobalChatPayload struct {
+	PlayerID string `json:"player_id"`
+	PlayerName string `json:"player_name"`
+	Message  string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
+}
+//announcement payload for server-wide messages
+type AnnouncementPayload struct {
+	Message   string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// NearbyPlayersPayload contains a list of nearby players
+type NearbyPlayersPayload struct {
+	Players []Player `json:"players"`
+	Radiun int    `json:"radius"`
+}
 
 // Player represents a player in the game
 type Player struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
+	Username string `json:"username"`
 	X        int    `json:"x"`
 	Y        int    `json:"y"`
 	Color    string `json:"color"`
 	Score    int    `json:"score"`
+	Avatar   string `json:"avatar,omitempty"` // URL or base64
 }
 
 // Entity represents a game entity (e.g., collectibles, obstacles)
@@ -122,3 +168,5 @@ func DecodeMessage(data []byte) (*Message, error) {
 	err := json.Unmarshal(data, &msg)
 	return &msg, err
 }
+
+
