@@ -1,4 +1,4 @@
-package protocol
+package protocol//handles communication protocol between client and server
 
 import "encoding/json"
 
@@ -11,9 +11,10 @@ const (
 	MsgLeaveRoom  MessageType = "leave_room"
 	MsgPlayerMove MessageType = "player_move"
 	MsgPlayerInput MessageType = "player_input"
+	MsgOnboard   MessageType = "onboard" //client onboarding message
 
 	// Server -> Client
-	MsgRoomJoined  MessageType = "room_joined"
+	MsgRoomJoined  MessageType = "room_joined" //server confirming
 	MsgRoomLeft    MessageType = "room_left"
 	MsgGameState   MessageType = "game_state"
 	MsgPlayerJoined MessageType = "player_joined"
@@ -24,7 +25,7 @@ const (
 // Message is the wrapper for all WebSocket messages
 type Message struct {
 	Type    MessageType     `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Payload json.RawMessage `json:"payload"` //handle different payloads, so it can hadnle various types including OnboardPayload
 }
 
 // JoinRoomPayload is sent when a player wants to join a room
@@ -92,6 +93,13 @@ type Entity struct {
 type ErrorPayload struct {
 	Message string `json:"message"`
 }
+
+type OnboardPayload struct {	
+	Name string `json:"name"`
+	Username string `json:"username"`
+	Avatar string `json:"avatar"` // URL or base64
+}
+
 
 // EncodeMessage encodes a message with its payload
 func EncodeMessage(msgType MessageType, payload interface{}) ([]byte, error) {
