@@ -26,12 +26,10 @@ type Room struct {
 // NewRoom creates a new game room
 func NewRoom(id string) *Room {
 	return &Room{
-		ID:       id,
-		Clients:  make(map[string]*Client),
+		ID:      id,
+		Clients: make(map[string]*Client),
 		GameState: &protocol.GameState{
-			Players:  make(map[string]protocol.Player),
-			Entities: []protocol.Entity{},
-			Tick:     0,
+			Tick: 0,
 		},
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *Client),
@@ -68,17 +66,6 @@ func (r *Room) handleRegister(client *Client) {
 
 	r.Clients[client.ID] = client
 
-	// Create player
-	player := protocol.Player{
-		ID:    client.ID,
-		Name:  client.Name,
-		X:     10 + len(r.GameState.Players)*5,
-		Y:     10,
-		Color: r.getRandomColor(),
-		Score: 0,
-	}
-	r.GameState.Players[client.ID] = player
-
 	log.Printf("Player %s joined room %s", client.Name, r.ID)
 
 	// Send room joined message to the new client
@@ -90,10 +77,6 @@ func (r *Room) handleRegister(client *Client) {
 	client.send <- msg
 
 	// Broadcast player joined to others
-	broadcastMsg, _ := protocol.EncodeMessage(protocol.MsgPlayerJoined, protocol.PlayerJoinedPayload{
-		Player: player,
-	})
-	r.broadcastToOthers(client.ID, broadcastMsg)
 }
 
 func (r *Room) handleUnregister(client *Client) {
@@ -102,16 +85,10 @@ func (r *Room) handleUnregister(client *Client) {
 
 	if _, ok := r.Clients[client.ID]; ok {
 		delete(r.Clients, client.ID)
-		delete(r.GameState.Players, client.ID)
 		close(client.send)
 
 		log.Printf("Player %s left room %s", client.Name, r.ID)
 
-		// Broadcast player left
-		msg, _ := protocol.EncodeMessage(protocol.MsgPlayerLeft, protocol.PlayerLeftPayload{
-			PlayerID: client.ID,
-		})
-		r.broadcast <- msg
 	}
 }
 
@@ -164,16 +141,11 @@ func (r *Room) UpdatePlayerPosition(playerID string, x, y int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if player, ok := r.GameState.Players[playerID]; ok {
-		player.X = x
-		player.Y = y
-		r.GameState.Players[playerID] = player
-	}
 }
 
 func (r *Room) getRandomColor() string {
 	colors := []string{"red", "green", "blue", "yellow", "magenta", "cyan"}
-	return colors[len(r.GameState.Players)%len(colors)]
+	return colors[time.Now().UnixNano()%int64(len(colors))]
 }
 
 // RoomManager manages all game rooms

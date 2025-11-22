@@ -42,7 +42,13 @@ func main() {
 
 	// Run Bubble Tea
 	p := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Clean up: disconnect when exiting
+	if m, ok := finalModel.(ui.Model); ok {
+		m.Disconnect()
 	}
 }

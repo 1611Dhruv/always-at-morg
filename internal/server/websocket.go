@@ -28,22 +28,29 @@ var upgrader = websocket.Upgrader{ //upgrade HTTP connections to WebSocket conne
 
 // Client represents a WebSocket client
 type Client struct {
-	ID   string
-	Name string
-	Room *Room
-	conn *websocket.Conn
-	send chan []byte
+	ID       string
+	Name     string
+	Room     *Room
+	conn     *websocket.Conn
+	send     chan []byte
+	Username string
+	Avatar   []int
+	inGame   bool
 }
 
 // Server represents the WebSocket server
 type Server struct {
 	roomManager *RoomManager
+	userManager *UserManager
+	chatManager *ChatManager
 }
 
 // NewServer creates a new WebSocket server
 func NewServer() *Server {
 	return &Server{
 		roomManager: NewRoomManager(),
+		userManager: NewUserManager(),
+		chatManager: NewChatManager(),
 	}
 }
 
@@ -145,44 +152,127 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 	}
 
 	switch msg.Type {
+	case protocol.MsgOnboard:
+		var payload protocol.OnboardPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling onboard payload: %v", err)
+			return
+		}
+
+		// Username should already be set from MsgJoinRoom
+		if c.Username == "" {
+			errMsg, _ := protocol.EncodeMessage(protocol.MsgError, protocol.ErrorPayload{
+				Message: "Invalid onboarding flow - username not set",
+			})
+			c.send <- errMsg
+			return
+		}
+
+		// Create user in UserManager with username and avatar
+		user, _ := s.userManager.GetOrCreateUserByUsername(c.Username, payload.Avatar)
+
+		// Set client fields
+		c.Avatar = user.Avatar
+		c.Name = payload.Name
+
+		// Auto-join default room
+		room := s.roomManager.GetOrCreateRoom("0")
+		c.Room = room
+		c.inGame = true
+		room.register <- c
+
+		log.Printf("New user %s onboarded with avatar %s", c.Username, c.Avatar)
+
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			log.Printf("Error unmarshaling join room payload: %v", err)
 			return
 		}
-		c.Name = payload.PlayerName
-		room := s.roomManager.GetOrCreateRoom(payload.RoomID)
-		c.Room = room
-		room.register <- c
+
+		// Set default room ID if not specified
+		if payload.RoomID == "" {
+			payload.RoomID = "0"
+		}
+
+		// Check if username exists in UserManager
+		if s.userManager.DoesUserExist(payload.Username) {
+			// Returning user - get their profile
+			user, _ := s.userManager.GetOrCreateUserByUsername(payload.Username, make([]int, 3))
+
+			// Set client fields from existing user
+			c.Username = user.Username
+			c.Avatar = user.Avatar
+			c.Name = user.Username
+
+			// Join room
+			room := s.roomManager.GetOrCreateRoom(payload.RoomID)
+			c.Room = room
+			c.inGame = true
+			room.register <- c
+
+			log.Printf("Returning user %s joined", user.Username)
+			return
+		}
+
+		// New user - store username and request onboarding for avatar selection
+		c.Username = payload.Username
+		onboardRequest, _ := protocol.EncodeMessage(protocol.MsgOnboardRequest, nil)
+		c.send <- onboardRequest
 
 	case protocol.MsgLeaveRoom:
 		if c.Room != nil {
 			c.Room.unregister <- c
 			c.Room = nil
+			// TODO: mark user not in game so they're not rendered
 		}
 
-	case protocol.MsgPlayerMove:
-		if c.Room == nil {
-			return
-		}
-		var payload protocol.PlayerMovePayload
+	case protocol.MsgGlobalChat:
+		var payload protocol.GlobalChatPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling player move payload: %v", err)
+			log.Printf("Error unmarshaling global chat payload: %v", err)
 			return
 		}
-		c.Room.UpdatePlayerPosition(c.ID, payload.X, payload.Y)
 
-	case protocol.MsgPlayerInput:
-		if c.Room == nil {
-			return
-		}
-		var payload protocol.PlayerInputPayload
+		// Handle global chat through ChatManager
+		s.chatManager.HandleGlobalChat(c, payload.Message, c.Room)
+
+	case protocol.MsgAnnouncement:
+		var payload protocol.AnnouncementPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling player input payload: %v", err)
+			log.Printf("Error unmarshaling announcement payload: %v", err)
 			return
 		}
-		// Handle custom input actions here
-		log.Printf("Player %s action: %s", c.Name, payload.Action)
+
+		// Handle global chat through ChatManager
+		s.chatManager.HandleAnnouncement(payload.Message, c.Room)
+
+	case protocol.MsgChatMessage:
+		var payload protocol.ChatMessagePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling chat message payload: %v", err)
+			return
+		}
+
+		s.chatManager.HandleDirectMessage(c, payload.ToPlayerID, payload.Message, c.Room)
+
+	case protocol.MsgChatRequest:
+		var payload protocol.ChatReqestPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling chat request payload: %v", err)
+			return
+		}
+
+		s.chatManager.HandleChatRequest(c, payload.ToPlayerID, payload.Message, c.Room)
+
+	case protocol.MsgChatResponse:
+		var payload protocol.ChatResponsePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling chat response payload: %v", err)
+			return
+		}
+
+		s.chatManager.HandleChatResponse(payload.FromPlayerID, payload.ToPlayerID, payload.Accepted)
+
 	}
 }

@@ -15,11 +15,20 @@ const (
 	ViewMainGame
 )
 
+// ChatMode represents the current chat mode
+type ChatMode int
+
+const (
+	ChatModeGlobal ChatMode = iota
+	ChatModePrivate
+)
+
 // Model is the main Bubble Tea model
 type Model struct {
-	viewState     ViewState
-	connMgr       *connection.Manager
-	playerName    string
+	viewState ViewState
+	connMgr   *connection.Manager   // Single connection manager, reused throughout session
+	eventChan chan connection.Event // Channel for connection events
+
 	usernameInput string
 	avatar        Avatar
 	avatarCursor  int
@@ -33,28 +42,56 @@ type Model struct {
 	RoomsGrid       [][]string // 2D grid of RoomCells
 
 	// Loading screen
-	loadingDots int
-	serverURL   string
+	loadingDots      int
+	serverURL        string
+	roomID           string // Room to join
+	userName         string
+	reconnectAttempt int    // Current reconnection attempt (0-5)
+	maxReconnects    int    // Maximum reconnection attempts
+	waitingToRetry   bool   // True when waiting for retry delay
 
-	// Game state
-	roomID        string
-	cursor        int
-	choices       []string
-	gameStarted   bool
-	statusMessage string
+	// Chat system
+	chatMode        ChatMode
+	chatTarget      string   // Username for private chat
+	announcements   []string // Server-wide announcements
+	chatMessages    []string // Chat messages (global or private)
+	chatInput       string   // Current chat input
+	chatInputActive bool     // True when typing in chat
 }
 
-// NewModel creates a new Bubble Tea model
+// NewModel creates a new Bubble Tea model with a connection manager
 func NewModel(serverURL string) Model {
+	// Create ONE connection manager that will be reused for the entire session
+	connMgr := connection.NewManager(serverURL)
+
+	// Create event channel for connection events
+	eventChan := make(chan connection.Event, 10)
+
+	// Set up event callback - when server sends events, push to channel
+	connMgr.OnEvent(func(event connection.Event) {
+		eventChan <- event
+	})
+
 	return Model{
-		viewState:     ViewLoading,
-		usernameInput: "",
-		avatar:        NewAvatar(),
-		avatarCursor:  0,
-		width:         80,
-		height:        24,
-		serverURL:     serverURL,
-		loadingDots:   0,
+		viewState:        ViewLoading,
+		connMgr:          connMgr,
+		eventChan:        eventChan,
+		usernameInput:    "",
+		avatar:           NewAvatar(),
+		avatarCursor:     0,
+		width:            80,
+		height:           24,
+		serverURL:        serverURL,
+		roomID:           "default-room", // Default room
+		loadingDots:      0,
+		reconnectAttempt: 0,
+		maxReconnects:    5,
+		chatMode:         ChatModeGlobal,
+		chatTarget:       "",
+		announcements:    []string{"Welcome to Always at Morg!"},
+		chatMessages:     []string{},
+		chatInput:        "",
+		chatInputActive:  false,
 	}
 }
 
@@ -64,18 +101,19 @@ func NewModelWithView(view ViewState) Model {
 	m.viewState = view
 	// Set some defaults for testing
 	if view == ViewMainGame {
-		m.playerName = "TestUser"
+		m.userName = "TestUser"
 	}
 	return m
 }
 
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
-	// Start connection attempt on loading screen
-	if m.viewState == ViewLoading {
+	// Start connection attempt on loading screen using the existing connection manager
+	if m.viewState == ViewLoading && m.connMgr != nil {
 		return tea.Batch(
-			connectCmd(m.serverURL),
-			tickCmd(),
+			connectCmd(m.connMgr), // Connect to server
+			tickCmd(),             // Tick for animations
+			listenForEventsCmd(m.connMgr, m.eventChan), // Listen for server events
 		)
 	}
 	return nil
@@ -113,13 +151,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case connectionSuccessMsg:
+		// Connection successful, move to username entry
+		m.reconnectAttempt = 0 // Reset retry counter
+		m.waitingToRetry = false
+		m.err = nil
 		m.viewState = ViewUsernameEntry
 		return m, nil
 
 	case connectionErrorMsg:
-		// Connection failed, stay on loading screen with error
+		// Connection failed
 		m.err = msg.err
+		m.reconnectAttempt++
+
+		// Retry if we haven't exceeded max attempts
+		if m.reconnectAttempt < m.maxReconnects {
+			// Wait before retrying (exponential backoff)
+			m.waitingToRetry = true
+			return m, tea.Batch(
+				tickCmd(),
+				retryConnectCmd(m.reconnectAttempt),
+			)
+		}
+
+		// Max retries exceeded, stay on loading screen with error
+		m.waitingToRetry = false
 		return m, nil
+
+	case retryMsg:
+		// Time to retry connection after delay
+		if m.viewState == ViewLoading && m.reconnectAttempt < m.maxReconnects {
+			m.waitingToRetry = false
+			return m, connectCmd(m.connMgr)
+		}
+		return m, nil
+
+	case connectionEventMsg:
+		// Server sent an event - handle it and decide which screen to show
+		return m.handleConnectionEvent(msg.event)
 
 	case tickMsg:
 		// Update loading animation
@@ -146,4 +214,60 @@ func (m Model) View() string {
 		return m.viewMainGame()
 	}
 	return ""
+}
+
+// Disconnect safely disconnects the connection manager
+func (m *Model) Disconnect() {
+	if m.connMgr != nil {
+		m.connMgr.Disconnect()
+	}
+}
+
+// Add new event handlers below when you add new event types in connection/events.go
+func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd) {
+	switch e := event.(type) {
+
+	case connection.ConnectedEvent:
+		// Server connected - we already handle this in connectionSuccessMsg
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.DisconnectedEvent:
+		// Lost connection - go back to loading screen
+		m.viewState = ViewLoading
+		m.err = e.Error
+		return m, nil
+
+	case connection.ErrorEvent:
+		// Server sent error - show it but stay on current screen
+		return m, tea.Batch(
+			tea.Println("Server error:", e.Message),
+			listenForEventsCmd(m.connMgr, m.eventChan),
+		)
+
+	// ============================================
+	// GAME STATE EVENTS
+	// ============================================
+	case connection.GameStateEvent:
+		// Server sent game state - move to avatar customization
+		// (This means server accepted our username)
+		m.viewState = ViewMainGame
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	// ============================================
+	// CHAT EVENTS
+	// ============================================
+	case connection.ChatMessageEvent:
+		// Received a chat message
+		// TODO: Add to chat panel
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.OnboardRequestEvent:
+		// Server requests onboarding - transition to avatar customization screen
+		m.viewState = ViewAvatarCustomization
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	default:
+		// Unknown event type - just keep listening
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+	}
 }
