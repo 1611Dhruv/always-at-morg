@@ -1,7 +1,7 @@
 package server
 
 import (
-	"log"
+	"log" //logs messages
 	"sync"
 	"time"
 
@@ -12,12 +12,13 @@ import (
 // Room represents a game room/session
 type Room struct {
 	ID       string
-	Clients  map[string]*Client
+	Clients  map[string]*Client //key is clients id which points to client struct
 	GameState *protocol.GameState
 
 	mu          sync.RWMutex
-	broadcast   chan []byte
-	register    chan *Client
+	broadcast   chan []byte //this is private to room only, used to send messages to all clients in the room
+	register    chan *Client //clients register to room, used when a new client joins
+	
 	unregister  chan *Client
 	tickRate    time.Duration
 }

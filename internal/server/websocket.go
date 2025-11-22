@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
-	pingPeriod     = (pongWait * 9) / 10
+	writeWait      = 10 * time.Second 
+	pongWait       = 60 * time.Second //time allowed to read the next pong message from client
+	pingPeriod     = (pongWait * 9) / 10 //send pings to client with this period. must be less than pongWait
 	maxMessageSize = 512
 )
 
-var upgrader = websocket.Upgrader{
+var upgrader = websocket.Upgrader{ //upgrade HTTP connections to WebSocket connections
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
@@ -61,7 +61,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send: make(chan []byte, 256),
 	}
 
-	go client.writePump()
+	go client.writePump() 
 	go client.readPump(s)
 }
 
