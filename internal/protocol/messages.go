@@ -1,5 +1,5 @@
 package protocol//handles communication protocol between client and server
-
+// WebSocket message types and payloads
 import "encoding/json"
 
 // MessageType defines the type of WebSocket message
@@ -109,11 +109,7 @@ type AnnouncementPayload struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-// NearbyPlayersPayload contains a list of nearby players
-type NearbyPlayersPayload struct {
-	Players []Player `json:"players"`
-	Radiun int    `json:"radius"`
-}
+
 
 // Player represents a player in the game
 type Player struct {
