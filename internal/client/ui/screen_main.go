@@ -170,6 +170,29 @@ func createAvatarFromIndices(indices []int) Avatar {
 
 // updateMainGame handles main game screen
 func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle player selection if active
+	if m.playerSelectActive {
+		switch msg.String() {
+		case "esc":
+			// Cancel player selection
+			m.playerSelectActive = false
+			m.nearbyPlayers = []string{}
+			m.chatMode = ChatModeGlobal
+			return m, nil
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			// Select player by number
+			playerNum := int(msg.String()[0] - '0') // Convert '1' -> 1, '2' -> 2, etc.
+			if playerNum > 0 && playerNum <= len(m.nearbyPlayers) {
+				m.chatTarget = m.nearbyPlayers[playerNum-1]
+				m.playerSelectActive = false
+				m.chatInputActive = true // Automatically start typing
+				m.chatInput = ""
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
 	// Handle chat input if active
 	if m.chatInputActive {
 		switch msg.String() {
@@ -193,6 +216,9 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					} else if m.chatMode == ChatModeGlobal {
 						// Send global chat message
 						m.connMgr.SendGlobalChat(m.userName, m.chatInput)
+					} else if m.chatMode == ChatModePrivate && m.chatTarget != "" {
+						// Send private message to selected player
+						m.connMgr.SendChatMessage(m.userName, m.chatTarget, m.chatInput)
 					}
 				}
 				// Clear input but stay in chat mode
@@ -247,10 +273,39 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p", "P":
-		// Switch to private chat (for now, set to placeholder)
+		// Switch to private chat and find nearby players
 		m.chatMode = ChatModePrivate
-		// TODO: Implement player selection UI
-		m.chatTarget = "Player2" // Placeholder
+
+		// Find nearby players (outside 4-tile exclusion zone, within 7 tiles)
+		if m.connMgr != nil {
+			gameState := m.connMgr.GetState()
+			if gameState != nil {
+				user, exists := gameState.Players[m.userName]
+				if exists {
+					x, y := parsePosition(user.Pos)
+					m.nearbyPlayers = []string{} // Reset list
+
+					for i := y - 7; i <= y+7; i++ {
+						for j := x - 7; j <= x+7; j++ {
+							// Skip if within 4-tile exclusion zone (both dimensions must be < 4)
+							if abs(i-y) < 4 && abs(j-x) < 4 {
+								continue
+							}
+							// Match server format: "Y:X" where i=Y, j=X
+							posStr := fmt.Sprintf("%d:%d", i, j)
+							if username, occupied := gameState.PosToUsername[posStr]; occupied {
+								m.nearbyPlayers = append(m.nearbyPlayers, username)
+							}
+						}
+					}
+
+					// Activate player selection mode if there are nearby players
+					if len(m.nearbyPlayers) > 0 {
+						m.playerSelectActive = true
+					}
+				}
+			}
+		}
 		return m, nil
 
 	// Movement keys - WASD and arrow keys (with diagonal support via number pad)
@@ -1094,26 +1149,66 @@ func (m Model) renderChatSection(width, height int) string {
 		Align(lipgloss.Center).
 		Render(modeIndicator)
 
-	// Chat messages
+	// Chat messages or player selection
 	var messageLines []string
 	displayCount := height - 3 // Reserve space for title, mode bar, padding (no input box here)
 	if displayCount < 1 {
 		displayCount = 1
 	}
 
-	// Show most recent messages
-	startIdx := 0
-	if len(m.chatMessages) > displayCount {
-		startIdx = len(m.chatMessages) - displayCount
-	}
+	// Show player selection if active
+	if m.playerSelectActive {
+		messageLines = append(messageLines, highlightStyle.Render("Select a player to chat with:"))
+		messageLines = append(messageLines, "")
+		for i, player := range m.nearbyPlayers {
+			if i < 9 { // Limit to 9 players (1-9 keys)
+				messageLines = append(messageLines, fmt.Sprintf("%s%d%s %s",
+					highlightStyle.Render("["),
+					i+1,
+					highlightStyle.Render("]"),
+					player))
+			}
+		}
+		messageLines = append(messageLines, "")
+		messageLines = append(messageLines, mutedStyle.Render("Press ESC to cancel"))
+	} else {
+		// Show messages based on current chat mode
+		var messages []string
+		if m.chatMode == ChatModeGlobal {
+			// Show global chat messages
+			messages = m.globalChatMessages
+		} else if m.chatMode == ChatModePrivate {
+			// Show private chat history with the selected user
+			if m.chatTarget != "" {
+				messages = m.privateChatHistory[m.chatTarget]
+				if messages == nil {
+					messages = []string{} // Initialize empty slice if no history yet
+				}
+			} else {
+				messages = []string{} // No target selected, show nothing
+			}
+		}
 
-	for i := startIdx; i < len(m.chatMessages); i++ {
-		messageLines = append(messageLines, m.chatMessages[i])
-	}
+		// Show most recent messages
+		startIdx := 0
+		if len(messages) > displayCount {
+			startIdx = len(messages) - displayCount
+		}
 
-	// If no messages, show placeholder
-	if len(messageLines) == 0 {
-		messageLines = append(messageLines, mutedStyle.Render("No messages yet. Press 't' to type."))
+		for i := startIdx; i < len(messages); i++ {
+			messageLines = append(messageLines, messages[i])
+		}
+
+		// If no messages, show placeholder
+		if len(messageLines) == 0 {
+			if m.chatMode == ChatModeGlobal {
+				messageLines = append(messageLines, mutedStyle.Render("No messages yet. Press 't' to type."))
+			} else if m.chatTarget != "" {
+				messageLines = append(messageLines, mutedStyle.Render("No messages with "+m.chatTarget+". Press 't' to type."))
+			} else {
+				messageLines = append(messageLines, mutedStyle.Render("Press 'p' to select a player"))
+			}
+		}
 	}
 
 	messagesContent := lipgloss.NewStyle().

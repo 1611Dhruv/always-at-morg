@@ -128,6 +128,16 @@ func (m *Manager) SendGlobalChat(userName, message string) error {
 	})
 }
 
+// SendChatMessage sends a private chat message to another player
+func (m *Manager) SendChatMessage(fromPlayerID, toPlayerID, message string) error {
+	return m.sendMessage(protocol.MsgChatMessage, protocol.ChatMessagePayload{
+		FromPlayerID: fromPlayerID,
+		ToPlayerID:   toPlayerID,
+		Message:      message,
+		Timestamp:    time.Now().Unix(),
+	})
+}
+
 // ProcessChatInput handles raw input from the chat box.
 // It detects commands (like /answer) and routes them appropriately,
 // otherwise sends a global chat message.
@@ -337,6 +347,20 @@ func (m *Manager) handleMessage(data []byte) {
 		m.sendEvent(TreasureHuntStateEvent{
 			ClueText:  payload.ClueText,
 			Completed: payload.Completed,
+		})
+
+	case protocol.MsgChatMessage:
+		var payload protocol.ChatMessagePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling private chat message: %v", err)
+			return
+		}
+
+		m.sendEvent(PrivateChatMessageEvent{
+			FromUsername: payload.FromPlayerID,
+			ToUsername:   payload.ToPlayerID,
+			Message:      payload.Message,
+			Timestamp:    payload.Timestamp,
 		})
 
 	default:

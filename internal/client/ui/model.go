@@ -50,15 +50,18 @@ type Model struct {
 	waitingToRetry   bool // True when waiting for retry delay
 
 	// Chat system
-	chatMode        ChatMode
-	chatTarget      string   // Username for private chat
-	announcements   []string // Server-wide announcements
-	chatMessages    []string // Chat messages (global or private)
-	chatInput       string   // Current chat input
-	chatInputActive bool     // True when typing in chat
+	chatMode           ChatMode
+	chatTarget         string              // Username for private chat
+	announcements      []string            // Server-wide announcements
+	globalChatMessages []string            // Global chat messages
+	privateChatHistory map[string][]string // Private chat messages per user (key: username)
+	chatInput          string              // Current chat input
+	chatInputActive    bool                // True when typing in chat
 
 	// Treasure Hunt
 	currentClue string
+	playerSelectActive bool                // True when selecting a player for private chat
+	nearbyPlayers      []string            // List of nearby players for selection
 }
 
 // NewModel creates a new Bubble Tea model with a connection manager
@@ -87,13 +90,14 @@ func NewModel(serverURL string) Model {
 		roomID:           "default-room", // Default room
 		loadingDots:      0,
 		reconnectAttempt: 0,
-		maxReconnects:    5,
-		chatMode:         ChatModeGlobal,
-		chatTarget:       "",
-		announcements:    []string{"Welcome to Always at Morg!"},
-		chatMessages:     []string{},
-		chatInput:        "",
-		chatInputActive:  false,
+		maxReconnects:      5,
+		chatMode:           ChatModeGlobal,
+		chatTarget:         "",
+		announcements:      []string{"Welcome to Always at Morg!"},
+		globalChatMessages: []string{},
+		privateChatHistory: make(map[string][]string),
+		chatInput:          "",
+		chatInputActive:    false,
 		currentClue:      "Loading clue...",
 	}
 }
@@ -269,12 +273,35 @@ func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd
 
 	case connection.GlobalChatMessagesEvent:
 		// Receive all global chat messages from server (replace, don't append)
-		m.chatMessages = make([]string, 0, len(e.Messages))
+		m.globalChatMessages = make([]string, 0, len(e.Messages))
 		for _, msg := range e.Messages {
 			// Format: [Username] Message
 			formattedMsg := highlightStyle.Render("["+msg.Username+"]") + " " + msg.Message
-			m.chatMessages = append(m.chatMessages, formattedMsg)
+			m.globalChatMessages = append(m.globalChatMessages, formattedMsg)
 		}
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.PrivateChatMessageEvent:
+		// Received a private message - append to private chat history for the relevant user
+		// Determine which user's chat history to update (the other person, not ourselves)
+		var otherUser string
+		var formattedMsg string
+
+		if e.FromUsername == m.userName {
+			// Sent by me to someone else
+			otherUser = e.ToUsername
+			formattedMsg = highlightStyle.Render("[You]") + " " + e.Message
+		} else {
+			// Received from someone else
+			otherUser = e.FromUsername
+			formattedMsg = highlightStyle.Render("["+e.FromUsername+"]") + " " + e.Message
+		}
+
+		// Append to this user's private chat history
+		if m.privateChatHistory[otherUser] == nil {
+			m.privateChatHistory[otherUser] = []string{}
+		}
+		m.privateChatHistory[otherUser] = append(m.privateChatHistory[otherUser], formattedMsg)
 		return m, listenForEventsCmd(m.connMgr, m.eventChan)
 
 	case connection.OnboardRequestEvent:
