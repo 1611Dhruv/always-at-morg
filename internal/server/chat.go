@@ -52,6 +52,36 @@ func (cm *ChatManager) HandleGlobalChat(client *Client, message string, room *Ro
 		Type:         "global",
 	}
 	cm.globalMessages = append(cm.globalMessages, chatMsg)
+
+	// Build payload with all global chat messages
+	messages := make([]protocol.GlobalChatPayload, len(cm.globalMessages))
+	for i, msg := range cm.globalMessages {
+		// Get username from client ID (need to look up from room)
+		username := ""
+		room.mu.RLock()
+		if c, ok := room.Clients[msg.FromPlayerID]; ok {
+			username = c.Username
+		}
+		room.mu.RUnlock()
+
+		messages[i] = protocol.GlobalChatPayload{
+			Username:  username,
+			Message:   msg.Message,
+			Timestamp: msg.Timestamp,
+		}
+	}
+
+	// Broadcast ALL messages to all clients
+	payload := protocol.GlobalChatMessagesPayload{
+		Messages: messages,
+	}
+
+	msg, err := protocol.EncodeMessage(protocol.MsgGlobalChatMessages, payload)
+	if err != nil {
+		return
+	}
+
+	room.broadcast <- msg
 }
 
 // HandleAnnouncement stores a new announcement
@@ -179,7 +209,7 @@ func (cm *ChatManager) HandleDirectMessage(fromClient *Client, toPlayerID string
 }
 
 // GetGlobalMessages returns all global chat messages as GlobalChatPayload format
-func (cm *ChatManager) GetGlobalMessages(room *Room) []protocol.GlobalChatPayload {
+func (cm *ChatManager) GetGlobalMessages(room *Room) protocol.GlobalChatMessagesPayload {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -201,7 +231,9 @@ func (cm *ChatManager) GetGlobalMessages(room *Room) []protocol.GlobalChatPayloa
 		}
 	}
 
-	return messages
+	return protocol.GlobalChatMessagesPayload{
+		Messages: messages,
+	}
 }
 
 // GetDMMessages returns all DM messages between two players

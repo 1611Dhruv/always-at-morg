@@ -27,6 +27,7 @@ const (
 	MsgPlayerLeft         MessageType = "player_left"
 	MsgError              MessageType = "error"
 	MsgGlobalChatMessages MessageType = "global_chat_messages"
+	MsgKuluchifiedState   MessageType = "kuluchified_state" // Unified per-tick state update
 
 	//chat and interaction
 	MsgChatResponse  MessageType = "chat_response"  // accept/decline chat interaction
@@ -58,6 +59,18 @@ type GameState struct {
 	Tick int64 `json:"tick"`
 }
 
+// Player represents a player in the game
+type Player struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	X        int    `json:"x"`
+	Y        int    `json:"y"`
+	Color    string `json:"color,omitempty"`
+	Score    int    `json:"score,omitempty"`
+	Avatar   string `json:"avatar,omitempty"`
+}
+
 // chat request payload for initiating chat interaction
 type ChatReqestPayload struct {
 	FromPlayerID string `json:"from_player_id"`
@@ -82,7 +95,7 @@ type ChatMessagePayload struct {
 
 // global chat message payload for messages sent to all players
 type GlobalChatPayload struct {
-	Username  string `json:"player_id"`
+	Username  string `json:"username"`
 	Message   string `json:"message"`
 	Timestamp int64  `json:"timestamp"`
 }
@@ -105,6 +118,14 @@ type OnboardPayload struct {
 
 type GlobalChatMessagesPayload struct {
 	Messages []GlobalChatPayload `json:"messages"`
+}
+
+// KuluchifiedStatePayload is the unified per-tick state update containing everything
+type KuluchifiedStatePayload struct {
+	GameState     GameState            `json:"game_state"`
+	ChatMessages  []GlobalChatPayload  `json:"chat_messages"`
+	Announcements []AnnouncementPayload `json:"announcements"`
+	Players       map[string]Player    `json:"players"`
 }
 
 // EncodeMessage encodes a message with its payload

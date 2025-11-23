@@ -16,12 +16,12 @@ type Room struct {
 	GameState   *protocol.GameState
 	chatManager *ChatManager
 
-	mu          sync.RWMutex
-	broadcast   chan []byte //this is private to room only, used to send messages to all clients in the room
-	register    chan *Client //clients register to room, used when a new client joins
-	
-	unregister  chan *Client
-	tickRate    time.Duration
+	mu        sync.RWMutex
+	broadcast chan []byte  //this is private to room only, used to send messages to all clients in the room
+	register  chan *Client //clients register to room, used when a new client joins
+
+	unregister chan *Client
+	tickRate   time.Duration
 }
 
 // NewRoom creates a new game room
@@ -116,29 +116,41 @@ func (r *Room) update(chatManager *ChatManager) {
 
 	r.mu.Unlock()
 
-	// Broadcast announcements
+	// Build unified Kuluchified state containing everything
 	announcements := chatManager.GetAnnouncements()
-	for _, announcement := range announcements {
-		payload := protocol.AnnouncementPayload{
+	announcementPayloads := make([]protocol.AnnouncementPayload, len(announcements))
+	for i, announcement := range announcements {
+		announcementPayloads[i] = protocol.AnnouncementPayload{
 			Message:   announcement.Message,
 			Timestamp: announcement.Timestamp,
 		}
-		announcementMsg, _ := protocol.EncodeMessage(protocol.MsgAnnouncement, payload)
-		r.broadcast <- announcementMsg
 	}
 
-	// Broadcast global chat messages
-	messages := chatManager.GetGlobalMessages(r)
-	if len(messages) > 0 {
-		payload := protocol.GlobalChatMessagesPayload{
-			Messages: messages,
+	chatMessages := chatManager.GetGlobalMessages(r)
+
+	// Build players map
+	r.mu.RLock()
+	players := make(map[string]protocol.Player)
+	for id, client := range r.Clients {
+		players[id] = protocol.Player{
+			ID:       client.ID,
+			Name:     client.Name,
+			Username: client.Username,
+			// Add position and other player data here when available
 		}
-		chatMsg, _ := protocol.EncodeMessage(protocol.MsgGlobalChatMessages, payload)
-		r.broadcast <- chatMsg
+	}
+	r.mu.RUnlock()
+
+	// Create unified state payload
+	kuluchifiedState := protocol.KuluchifiedStatePayload{
+		GameState:     *r.GameState,
+		ChatMessages:  chatMessages.Messages,
+		Announcements: announcementPayloads,
+		Players:       players,
 	}
 
-	// Broadcast game state to all clients
-	msg, _ := protocol.EncodeMessage(protocol.MsgGameState, r.GameState)
+	// Send ONE broadcast with everything
+	msg, _ := protocol.EncodeMessage(protocol.MsgKuluchifiedState, kuluchifiedState)
 	r.broadcast <- msg
 }
 

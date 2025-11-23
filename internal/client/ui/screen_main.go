@@ -21,21 +21,27 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			// Send message
 			if len(m.chatInput) > 0 {
-				// TODO: Send to server via connection manager
-				// For now, just add to local messages
-				prefix := "[You] "
-				if m.chatMode == ChatModePrivate {
-					prefix = "[You -> " + m.chatTarget + "] "
+				if m.connMgr != nil && m.connMgr.IsConnected() {
+					if m.chatMode == ChatModeGlobal {
+						// Send global chat message
+						m.connMgr.SendGlobalChat(m.userName, m.chatInput)
+					}
 				}
-				m.chatMessages = append(m.chatMessages, prefix+m.chatInput)
+				// Clear input but stay in chat mode
 				m.chatInput = ""
 			}
-			m.chatInputActive = false
 			return m, nil
 
 		case "backspace":
 			if len(m.chatInput) > 0 {
 				m.chatInput = m.chatInput[:len(m.chatInput)-1]
+			}
+			return m, nil
+
+		case " ":
+			// Handle space explicitly
+			if len(m.chatInput) < 100 {
+				m.chatInput += " "
 			}
 			return m, nil
 
@@ -60,19 +66,19 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	// Chat controls
-	case "t":
+	case "t", "T":
 		// Start typing in chat
 		m.chatInputActive = true
 		m.chatInput = ""
 		return m, nil
 
-	case "g":
+	case "g", "G":
 		// Switch to global chat
 		m.chatMode = ChatModeGlobal
 		m.chatTarget = ""
 		return m, nil
 
-	case "p":
+	case "p", "P":
 		// Switch to private chat (for now, set to placeholder)
 		m.chatMode = ChatModePrivate
 		// TODO: Implement player selection UI
@@ -261,7 +267,7 @@ func (m Model) renderAnnouncementsSection(width, height int) string {
 
 	announcementContent := lipgloss.NewStyle().
 		Width(width).
-		Height(height - 1).
+		Height(height-1).
 		Padding(0, 1).
 		Render(strings.Join(announcementLines, "\n"))
 

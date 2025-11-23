@@ -103,21 +103,28 @@ func (m *Manager) IsConnected() bool {
 //// FROM CLIENT -> SERVER MESSAGES ////
 
 // JoinRoom sends a join room request
-func (m *Manager) JoinRoom(roomID, playerName string) error {
+func (m *Manager) JoinRoom(roomID, userName string) error {
 	return m.sendMessage(protocol.MsgJoinRoom, protocol.JoinRoomPayload{
 		RoomID:   roomID,
-		Username: playerName,
+		Username: userName,
 	})
 }
 
-func (m *Manager) SendOnboardResponse(playerName string, avatar []int) error {
+func (m *Manager) SendOnboardResponse(userName string, avatar []int) error {
 	return m.sendMessage(protocol.MsgOnboard, protocol.OnboardPayload{
-		Name:   playerName,
+		Name:   userName,
 		Avatar: avatar,
 	})
 }
 
 // Chat messages
+func (m *Manager) SendGlobalChat(userName, message string) error {
+	return m.sendMessage(protocol.MsgGlobalChat, protocol.GlobalChatPayload{
+		Username:  userName,
+		Message:   message,
+		Timestamp: time.Now().Unix(),
+	})
+}
 
 ////////////////////////////////////////////
 
@@ -204,6 +211,66 @@ func (m *Manager) handleMessage(data []byte) {
 
 	case protocol.MsgOnboardRequest:
 		m.sendEvent(OnboardRequestEvent{})
+
+	case protocol.MsgGameState:
+		var payload protocol.GameState
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling game state: %v", err)
+			return
+		}
+		m.state.UpdateState(&payload)
+		m.sendEvent(GameStateEvent{})
+		// log.Printf("Received game state update (tick: %d)", payload.Tick)
+
+	case protocol.MsgKuluchifiedState:
+		// Unified per-tick state update - parse and split into separate events
+		var payload protocol.KuluchifiedStatePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling kuluchified state: %v", err)
+			return
+		}
+
+		// Update game state
+		m.state.UpdateState(&payload.GameState)
+		m.sendEvent(GameStateEvent{})
+
+		// Send chat messages event
+		if len(payload.ChatMessages) > 0 {
+			messages := make([]ChatMessage, len(payload.ChatMessages))
+			for i, msg := range payload.ChatMessages {
+				messages[i] = ChatMessage{
+					Username:  msg.Username,
+					Message:   msg.Message,
+					Timestamp: msg.Timestamp,
+				}
+			}
+			m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
+		}
+
+		// TODO: Handle announcements and players when needed
+
+	case protocol.MsgGlobalChatMessages:
+		var payload protocol.GlobalChatMessagesPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling global chat messages: %v", err)
+			return
+		}
+
+		// Convert protocol messages to event messages
+		messages := make([]ChatMessage, len(payload.Messages))
+		for i, msg := range payload.Messages {
+			messages[i] = ChatMessage{
+				Username:  msg.Username,
+				Message:   msg.Message,
+				Timestamp: msg.Timestamp,
+			}
+		}
+
+		m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
+		// log.Printf("Received %d global chat messages", len(messages))
+
+	default:
+		log.Printf("Unhandled message type: %s", msg.Type)
 	}
 }
 
