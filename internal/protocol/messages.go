@@ -13,7 +13,6 @@ const (
 	MsgPlayerInput MessageType = "player_input"
 	MsgOnboard     MessageType = "onboard" //client onboarding message
 
-	MsgChatRequest  MessageType = "chat_request"        // start a one to one?
 	MsgChatMessage  MessageType = "chat_message"        // one to one
 	MsgGlobalChat   MessageType = "global_chat_message" // me sending u messaeg?
 	MsgAnnouncement MessageType = "announcement"
@@ -30,7 +29,6 @@ const (
 	MsgKuluchifiedState   MessageType = "kuluchified_state" // Unified per-tick state update
 
 	//chat and interaction
-	MsgChatResponse  MessageType = "chat_response"  // accept/decline chat interaction
 	MsgNearbyPlayers MessageType = "nearby_players" // take lite
 
 )
@@ -78,20 +76,6 @@ type Player struct {
 type PlayerMovePayload struct {
 	NewX int `json:"new_x"`
 	NewY int `json:"new_y"`
-}
-
-// chat request payload for initiating chat interaction
-type ChatReqestPayload struct {
-	FromPlayerID string `json:"from_player_id"`
-	ToPlayerID   string `json:"to_player_id"`
-	Message      string `json:"message"`
-}
-
-// accept/decline chat interaction
-type ChatResponsePayload struct {
-	FromPlayerID string `json:"from_player_id"` // Who initiated the request
-	ToPlayerID   string `json:"to_player_id"`   // Who is responding
-	Accepted     bool   `json:"accepted"`
 }
 
 // chat message payload for sending messages between players

@@ -126,6 +126,16 @@ func (m *Manager) SendGlobalChat(userName, message string) error {
 	})
 }
 
+// SendChatMessage sends a private chat message to another player
+func (m *Manager) SendChatMessage(fromPlayerID, toPlayerID, message string) error {
+	return m.sendMessage(protocol.MsgChatMessage, protocol.ChatMessagePayload{
+		FromPlayerID: fromPlayerID,
+		ToPlayerID:   toPlayerID,
+		Message:      message,
+		Timestamp:    time.Now().Unix(),
+	})
+}
+
 // SendPlayerMove sends a player move request
 func (m *Manager) SendPlayerMove(newX, newY int) error {
 	return m.sendMessage(protocol.MsgPlayerMove, protocol.PlayerMovePayload{
@@ -276,6 +286,20 @@ func (m *Manager) handleMessage(data []byte) {
 
 		m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
 		// log.Printf("Received %d global chat messages", len(messages))
+
+	case protocol.MsgChatMessage:
+		var payload protocol.ChatMessagePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling private chat message: %v", err)
+			return
+		}
+
+		m.sendEvent(PrivateChatMessageEvent{
+			FromUsername: payload.FromPlayerID,
+			ToUsername:   payload.ToPlayerID,
+			Message:      payload.Message,
+			Timestamp:    payload.Timestamp,
+		})
 
 	default:
 		log.Printf("Unhandled message type: %s", msg.Type)

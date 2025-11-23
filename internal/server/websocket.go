@@ -255,25 +255,8 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			return
 		}
 
+		// payload.ToPlayerID is actually a username from the client
 		s.chatManager.HandleDirectMessage(c, payload.ToPlayerID, payload.Message, c.Room)
-
-	case protocol.MsgChatRequest:
-		var payload protocol.ChatReqestPayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling chat request payload: %v", err)
-			return
-		}
-
-		s.chatManager.HandleChatRequest(c, payload.ToPlayerID, payload.Message, c.Room)
-
-	case protocol.MsgChatResponse:
-		var payload protocol.ChatResponsePayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			log.Printf("Error unmarshaling chat response payload: %v", err)
-			return
-		}
-
-		s.chatManager.HandleChatResponse(payload.FromPlayerID, payload.ToPlayerID, payload.Accepted)
 
 	case protocol.MsgGlobalChatMessages:
 		// Client requesting global chat history

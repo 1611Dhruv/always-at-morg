@@ -21,10 +21,9 @@ type ChatMessage struct {
 // ChatManager manages all chat functionality
 type ChatManager struct {
 	// Message storage
-	globalMessages []ChatMessage              // Global chat history
-	dmMessages     map[string][]ChatMessage   // key: "playerID1:playerID2" (sorted) -> messages
-	announcements  []ChatMessage              // Announcement history
-	activeDMs      map[string]map[string]bool // fromClientID -> toClientID -> isActive
+	globalMessages []ChatMessage            // Global chat history
+	dmMessages     map[string][]ChatMessage // key: "playerID1:playerID2" (sorted) -> messages
+	announcements  []ChatMessage            // Announcement history
 	mu             sync.RWMutex
 }
 
@@ -34,7 +33,6 @@ func NewChatManager() *ChatManager {
 		globalMessages: make([]ChatMessage, 0),
 		dmMessages:     make(map[string][]ChatMessage),
 		announcements:  make([]ChatMessage, 0),
-		activeDMs:      make(map[string]map[string]bool),
 	}
 }
 
@@ -99,96 +97,45 @@ func (cm *ChatManager) HandleAnnouncement(message string, room *Room) {
 	cm.announcements = append(cm.announcements, chatMsg)
 }
 
-// HandleChatRequest processes a chat request from one player to another
-func (cm *ChatManager) HandleChatRequest(fromClient *Client, toPlayerID string, message string, room *Room) {
-	cm.mu.Lock()
-
-	// Initialize the map if it doesn't exist
-	if cm.activeDMs[fromClient.ID] == nil {
-		cm.activeDMs[fromClient.ID] = make(map[string]bool)
-	}
-
-	// Mark as pending (will be activated on response)
-	cm.activeDMs[fromClient.ID][toPlayerID] = false
-	cm.mu.Unlock()
-
-	payload := protocol.ChatReqestPayload{
-		FromPlayerID: fromClient.ID,
-		ToPlayerID:   toPlayerID,
-		Message:      message,
-	}
-
-	msg, err := protocol.EncodeMessage(protocol.MsgChatRequest, payload)
-	if err != nil {
-		return
-	}
-
-	// Send chat request to the target player
-	room.mu.RLock()
-	defer room.mu.RUnlock()
-
-	if targetClient, ok := room.Clients[toPlayerID]; ok {
-		targetClient.send <- msg
-	}
-}
-
-// HandleChatResponse processes accept/decline of a chat request
-func (cm *ChatManager) HandleChatResponse(fromPlayerID string, toPlayerID string, accepted bool) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if accepted {
-		// Activate the DM session
-		if cm.activeDMs[fromPlayerID] == nil {
-			cm.activeDMs[fromPlayerID] = make(map[string]bool)
-		}
-		if cm.activeDMs[toPlayerID] == nil {
-			cm.activeDMs[toPlayerID] = make(map[string]bool)
-		}
-
-		cm.activeDMs[fromPlayerID][toPlayerID] = true
-		cm.activeDMs[toPlayerID][fromPlayerID] = true
-	} else {
-		// Remove the pending request
-		if cm.activeDMs[fromPlayerID] != nil {
-			delete(cm.activeDMs[fromPlayerID], toPlayerID)
-		}
-	}
-}
-
 // HandleDirectMessage sends a 1:1 message between two players
-func (cm *ChatManager) HandleDirectMessage(fromClient *Client, toPlayerID string, message string, room *Room) {
-	cm.mu.Lock()
+// toUsername is the target player's username (not client ID)
+func (cm *ChatManager) HandleDirectMessage(fromClient *Client, toUsername string, message string, room *Room) {
+	// Find target client by username
+	room.mu.RLock()
+	var targetClient *Client
+	for _, client := range room.Clients {
+		if client.Username == toUsername {
+			targetClient = client
+			break
+		}
+	}
+	room.mu.RUnlock()
 
-	// Check if DM session is active
-	if cm.activeDMs[fromClient.ID] == nil || !cm.activeDMs[fromClient.ID][toPlayerID] {
-		cm.mu.Unlock()
-		// Send error - no active DM session
-		errMsg, _ := protocol.EncodeMessage(protocol.MsgError, protocol.ErrorPayload{
-			Message: "No active chat session with this player",
-		})
-		fromClient.send <- errMsg
+	if targetClient == nil {
+		// Target player not found in room
 		return
 	}
 
+	cm.mu.Lock()
 	// Store the DM
 	chatMsg := ChatMessage{
 		ID:           uuid.New().String(),
 		FromPlayerID: fromClient.ID,
-		ToPlayerID:   toPlayerID,
+		ToPlayerID:   targetClient.ID,
 		Message:      message,
 		Timestamp:    time.Now().Unix(),
 		Type:         "dm",
 	}
 
 	// Get or create DM history key (sorted player IDs for consistent key)
-	dmKey := getDMKey(fromClient.ID, toPlayerID)
+	dmKey := getDMKey(fromClient.ID, targetClient.ID)
 	cm.dmMessages[dmKey] = append(cm.dmMessages[dmKey], chatMsg)
 	cm.mu.Unlock()
 
+	// Send usernames in the payload (not IDs) so client can display them
 	payload := protocol.ChatMessagePayload{
-		FromPlayerID: fromClient.ID,
-		ToPlayerID:   toPlayerID,
+		FromPlayerID: fromClient.Username,
+		ToPlayerID:   targetClient.Username,
 		Message:      message,
 		Timestamp:    chatMsg.Timestamp,
 	}
@@ -198,13 +145,8 @@ func (cm *ChatManager) HandleDirectMessage(fromClient *Client, toPlayerID string
 		return
 	}
 
-	// Send message to the target player
-	room.mu.RLock()
-	defer room.mu.RUnlock()
-
-	if targetClient, ok := room.Clients[toPlayerID]; ok {
-		targetClient.send <- msg
-	}
+	// Send message to both sender and receiver
+	targetClient.send <- msg
 	fromClient.send <- msg
 }
 
@@ -259,31 +201,6 @@ func (cm *ChatManager) GetAnnouncements() []ChatMessage {
 	messages := make([]ChatMessage, len(cm.announcements))
 	copy(messages, cm.announcements)
 	return messages
-}
-
-// IsActiveDM checks if there's an active DM session between two players
-func (cm *ChatManager) IsActiveDM(fromPlayerID, toPlayerID string) bool {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	if cm.activeDMs[fromPlayerID] == nil {
-		return false
-	}
-
-	return cm.activeDMs[fromPlayerID][toPlayerID]
-}
-
-// CloseDM closes a DM session between two players
-func (cm *ChatManager) CloseDM(fromPlayerID, toPlayerID string) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if cm.activeDMs[fromPlayerID] != nil {
-		delete(cm.activeDMs[fromPlayerID], toPlayerID)
-	}
-	if cm.activeDMs[toPlayerID] != nil {
-		delete(cm.activeDMs[toPlayerID], fromPlayerID)
-	}
 }
 
 // Helper function to generate consistent DM keys

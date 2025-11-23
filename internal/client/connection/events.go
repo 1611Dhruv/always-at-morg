@@ -47,3 +47,13 @@ type ChatMessage struct {
 	Message   string
 	Timestamp int64
 }
+
+// PrivateChatMessageEvent is sent when a private message is received
+type PrivateChatMessageEvent struct {
+	FromUsername string
+	ToUsername   string
+	Message      string
+	Timestamp    int64
+}
+
+func (PrivateChatMessageEvent) isEvent() {}
