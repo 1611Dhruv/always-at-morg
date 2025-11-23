@@ -47,10 +47,11 @@ type Server struct {
 
 // NewServer creates a new WebSocket server
 func NewServer() *Server {
+	chatManager := NewChatManager()
 	return &Server{
-		roomManager: NewRoomManager(),
+		roomManager: NewRoomManager(chatManager),
 		userManager: NewUserManager(),
-		chatManager: NewChatManager(),
+		chatManager: chatManager,
 	}
 }
 
@@ -274,5 +275,22 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 
 		s.chatManager.HandleChatResponse(payload.FromPlayerID, payload.ToPlayerID, payload.Accepted)
 
+	case protocol.MsgGlobalChatMessages:
+		// Client requesting global chat history
+		if c.Room == nil {
+			return
+		}
+
+		messages := s.chatManager.GetGlobalMessages(c.Room)
+		payload := protocol.GlobalChatMessagesPayload{
+			Messages: messages,
+		}
+
+		msg, err := protocol.EncodeMessage(protocol.MsgGlobalChatMessages, payload)
+		if err != nil {
+			return
+		}
+
+		c.send <- msg
 	}
 }
