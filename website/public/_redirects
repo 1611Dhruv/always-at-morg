@@ -1,0 +1,7 @@
+# Serve static files directly
+/releases/*  /releases/:splat  200
+/install.sh  /install.sh  200
+/install.ps1  /install.ps1  200
+
+# SPA fallback for all other routes
+/*  /index.html  200
