@@ -41,7 +41,7 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Cancel chat input
 			m.chatInputActive = false
 			m.chatInput = ""
-			return m, nil
+			return m, func() tea.Msg { return tea.ClearScreen() }
 
 		case "enter":
 			// Send message
@@ -95,7 +95,7 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Start typing in chat
 		m.chatInputActive = true
 		m.chatInput = ""
-		return m, nil
+		return m, func() tea.Msg { return tea.ClearScreen() }
 
 	case "g", "G":
 		// Switch to global chat
@@ -638,7 +638,6 @@ func (m Model) renderChatInputBox(width int) string {
 		Height(1). // Fixed height to prevent shifting
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(mutedColor).
-		Padding(0, 1).
 		Render(inputPrefix + inputText)
 }
 
