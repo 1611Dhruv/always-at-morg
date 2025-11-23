@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -13,12 +14,21 @@ import (
 func main() {
 	serverURL := flag.String("server", "ws://join.always-at-morg.bid/ws", "WebSocket server URL")
 	screen := flag.String("screen", "", "Screen to display (for testing): loading, username, avatar, game")
+	debug := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
 	// Allow positional argument as server URL (for backwards compatibility)
 	if flag.NArg() > 0 {
 		url := flag.Arg(0)
 		serverURL = &url
+	}
+
+	if *debug {
+		fmt.Println("Debug mode enabled")
+		log.SetOutput(os.Stdout)
+	} else {
+		// Don't log anything in normal mode
+		log.SetOutput(io.Discard)
 	}
 
 	var model ui.Model
