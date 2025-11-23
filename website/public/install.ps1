@@ -1,5 +1,5 @@
 # Always at Morg - Windows Installation Script
-# Usage: iwr -useb https://web.always-at-mor.big/install.ps1 | iex
+# Usage: iwr -useb https://web.always-at-morg.bid/install.ps1 | iex
 
 param(
     [string]$InstallDir = "$env:LOCALAPPDATA\Programs\morg"

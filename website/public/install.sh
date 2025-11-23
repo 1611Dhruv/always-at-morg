@@ -2,7 +2,7 @@
 set -e
 
 # Always at Morg - Installation Script
-# Usage: curl -fsSL https://web.always-at-mor.big/install.sh | bash
+# Usage: curl -fsSL https://web.always-at-morg.bid/install.sh | bash
 
 VERSION="${VERSION:-latest}"
 BASE_URL="https://web.always-at-morg.bid/releases"
