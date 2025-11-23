@@ -47,7 +47,7 @@ always-at-morg/
 ## For Developers
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24+
 - Node.js 18+ (for website)
 
 ### Running Locally
@@ -185,18 +185,29 @@ Make accessible at `ws://always-at-morg.bid:8080/ws`
 
 **Client → Server:**
 - `join_room` - Join game room
+- `leave_room` - Leave current room
 - `player_move` - Movement update
+- `player_input` - Player input
+- `onboard` - Client onboarding (username + avatar)
 - `global_chat_message` - Global chat
 - `room_chat_message` - Room chat
-- `chat_message` - Private message
-- `treasure_hunt_guess` - Submit answer
+- `chat_message` - Private (one-to-one) message
+- `announcement` - Server announcement
+- `treasure_hunt_guess` - Submit treasure hunt answer
 
 **Server → Client:**
-- `room_joined` - Join confirmation
-- `kuluchified_state` - Unified game state (tick)
-- `global_chat_messages` - Chat history
+- `onboard_request` - Request client onboarding
+- `room_joined` - Room join confirmation
+- `room_left` - Room leave confirmation
+- `game_state` - Game state snapshot
+- `player_joined` - Player joined notification
+- `player_left` - Player left notification
+- `error` - Error message
+- `kuluchified_state` - Unified per-tick state update (includes all game state, chat, announcements, players, treasure hunt)
+- `global_chat_messages` - Global chat history
 - `room_chat_messages` - Room chat history
-- `treasure_hunt_state` - Treasure hunt updates
+- `nearby_players` - Nearby players list
+- `treasure_hunt_state` - Treasure hunt status updates
 
 ## Tech Stack
 
@@ -206,21 +217,6 @@ Make accessible at `ws://always-at-morg.bid:8080/ws`
 - **Icons**: Font Awesome 6
 - **Styling**: Pure CSS3
 - **Tools**: UUID generation, JSON protocol
-
-## Contributing
-
-This is a student project for UW Madison. Feel free to fork and customize!
-
-### Adding Features
-
-1. Update protocol: `internal/protocol/messages.go`
-2. Add server logic: `internal/server/`
-3. Add client logic: `internal/client/`
-4. Update UI: `internal/client/ui/`
-
-## License
-
-MIT
 
 ---
 
