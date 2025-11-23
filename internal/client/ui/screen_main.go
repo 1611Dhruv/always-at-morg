@@ -11,24 +11,24 @@ import (
 )
 
 var (
-	gameMap     [250][400]string
+	gameWorld   [250][400]string
 	roomMap     [250][400]int
 	gameMapOnce sync.Once
 	gameMapErr  error
 	roomMapErr  error
 )
 
-func getGameMap() ([250][400]string, error) {
+func getGameWorld() ([250][400]string, error) {
 	gameMapOnce.Do(func() {
-		gameMap, gameMapErr = fillGameMap()
+		gameWorld, gameMapErr = fillGameMap()
 		roomMap, roomMapErr = fillRoomMap()
 	})
-	return gameMap, gameMapErr
+	return gameWorld, gameMapErr
 }
 
 func getRoomMap() ([250][400]int, error) {
 	// Ensure maps are loaded
-	_, _ = getGameMap()
+	_, _ = getGameWorld()
 	return roomMap, roomMapErr
 }
 
@@ -453,30 +453,76 @@ func (m Model) renderGamePanel(width, height int) string {
 	)
 }
 
+// populateGrids fills GameWorldGrid and RoomsGrid from the loaded game world and room map
+func (m *Model) populateGrids() {
+	gameWorldData, err := getGameWorld()
+	if err != nil {
+		// If error, initialize empty grids
+		m.GameWorldGrid = make([][]string, m.GameWorldHeight)
+		m.RoomsGrid = make([][]string, m.GameWorldHeight)
+		for i := range m.GameWorldGrid {
+			m.GameWorldGrid[i] = make([]string, m.GameWorldWidth)
+			m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
+		}
+		return
+	}
+
+	roomData, err := getRoomMap()
+	if err != nil {
+		// If error, initialize empty grids
+		m.GameWorldGrid = make([][]string, m.GameWorldHeight)
+		m.RoomsGrid = make([][]string, m.GameWorldHeight)
+		for i := range m.GameWorldGrid {
+			m.GameWorldGrid[i] = make([]string, m.GameWorldWidth)
+			m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
+		}
+		return
+	}
+
+	// Initialize grids
+	m.GameWorldGrid = make([][]string, m.GameWorldHeight)
+	m.RoomsGrid = make([][]string, m.GameWorldHeight)
+	for i := range m.GameWorldGrid {
+		m.GameWorldGrid[i] = make([]string, m.GameWorldWidth)
+		m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
+	}
+
+	// Populate from game world and room map (viewport starts at 0,0 for now)
+	cameraY := 0
+	cameraX := 0
+	for y := 0; y < m.GameWorldHeight; y++ {
+		sourceY := cameraY + y
+		if sourceY >= 250 {
+			break
+		}
+		for x := 0; x < m.GameWorldWidth; x++ {
+			sourceX := cameraX + x
+			if sourceX >= 400 {
+				break
+			}
+			// Fill game world grid
+			m.GameWorldGrid[y][x] = gameWorldData[sourceY][sourceX]
+			// Fill rooms grid with room letter or empty
+			roomNum := roomData[sourceY][sourceX]
+			if roomNum >= 3 {
+				roomLetter := string(rune('A' + (roomNum - 3)))
+				m.RoomsGrid[y][x] = roomLetter
+			} else {
+				m.RoomsGrid[y][x] = ""
+			}
+		}
+	}
+}
+
 // renderGameWorld creates a grid representation of the game world
 func (m Model) renderGameWorld(width, height int) string {
 	var builder strings.Builder
 
-	// Initialize GameWorldGrid if not already done
-	if len(m.GameWorldGrid) == 0 || len(m.GameWorldGrid) != height {
-		// This will be updated in the Update() function on WindowSizeMsg
-		// For now, just render empty grid
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				builder.WriteString(".")
-			}
-			if y < height-1 {
-				builder.WriteString("\n")
-			}
-		}
-		return builder.String()
-	}
-
-	// Render the actual grid
+	// Render from GameWorldGrid
 	for y := 0; y < height && y < len(m.GameWorldGrid); y++ {
 		for x := 0; x < width && x < len(m.GameWorldGrid[y]); x++ {
 			if m.GameWorldGrid[y][x] == "" {
-				builder.WriteString(".")
+				builder.WriteString(transparentStyle)
 			} else {
 				builder.WriteString(m.GameWorldGrid[y][x])
 			}

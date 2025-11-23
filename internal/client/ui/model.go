@@ -130,10 +130,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.GameWorldWidth = int(0.8 * float64(msg.Width)) // 80% of terminal width because of chat panel
 		m.GameWorldHeight = msg.Height
 
-		m.GameWorldGrid = make([][]string, m.GameWorldHeight)
-		for i := range m.GameWorldGrid {
-			m.GameWorldGrid[i] = make([]string, m.GameWorldWidth) // populated with tiles and entities later
-		}
+		// Populate grids from game world and room map data
+		m.populateGrids()
 
 		return m, nil
 
