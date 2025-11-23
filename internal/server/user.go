@@ -1,16 +1,16 @@
 package server
 
 import (
-	"sync"
-
+	"fmt"
 	"github.com/google/uuid"
+	"sync"
 )
 
 // User represents a persistent user profile
 type User struct {
 	ID       string
 	Username string
-	Avatar   string
+	Avatar   []int
 }
 
 // UserManager manages persistent user profiles
@@ -29,10 +29,11 @@ func NewUserManager() *UserManager {
 }
 
 // GetOrCreateUserByUsername gets existing user by username or creates new one
-func (um *UserManager) GetOrCreateUserByUsername(username, avatar string) (*User, bool) {
+func (um *UserManager) GetOrCreateUserByUsername(username string, avatar []int) (*User, bool) {
 	um.mu.Lock()
 	defer um.mu.Unlock()
 
+	fmt.Println("GetOrCreateUserByUsername called with username:", username)
 	// Check if username exists
 	if user, exists := um.usernames[username]; exists {
 		return user, true // returning user
@@ -58,4 +59,3 @@ func (um *UserManager) DoesUserExist(username string) bool {
 	_, exists := um.usernames[username]
 	return exists
 }
-

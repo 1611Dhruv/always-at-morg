@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,49 +19,54 @@ func (m Model) updateLoading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // viewLoading renders the loading/connection screen
 func (m Model) viewLoading() string {
-	// Title
-	title := titleStyle.Render("🌲 ALWAYS AT MORG")
-	subtitle := subtitleStyle.Render("Connecting to the hall...")
+	// Simple title
+	title := titleStyle.Render("ALWAYS AT MORG")
 
-	// Animated loading dots
-	dots := strings.Repeat(".", m.loadingDots)
-	spinner := spinnerStyle.Render("◐◓◑◒"[m.loadingDots%4 : m.loadingDots%4+1])
+	// Animated dots
+	dots := strings.Repeat(".", (m.loadingDots % 3) + 1)
+	spaces := strings.Repeat(" ", 3 - (m.loadingDots % 3))
 
-	loadingText := lipgloss.NewStyle().
-		Foreground(mutedColor).
-		Render("Establishing connection" + dots)
-
-	status := lipgloss.JoinVertical(
-		lipgloss.Center,
-		spinner+" "+loadingText,
-	)
-
-	// Error message if connection failed
-	var errorMsg string
+	// Connection status
+	var statusText string
 	if m.err != nil {
-		errorMsg = errorStyle.Render("\n\n✗ Connection failed: " + m.err.Error())
-		retryMsg := mutedStyle.Render("\nPress ESC to quit")
-		errorMsg = errorMsg + retryMsg
+		if m.reconnectAttempt < m.maxReconnects {
+			if m.waitingToRetry {
+				// Calculate retry delay (exponential backoff)
+				delay := 1 << uint(m.reconnectAttempt-1)
+				if delay > 10 {
+					delay = 10
+				}
+				statusText = lipgloss.NewStyle().
+					Foreground(mutedColor).
+					Render(fmt.Sprintf("Waiting %ds before retry %d/%d%s%s", delay, m.reconnectAttempt, m.maxReconnects, dots, spaces))
+			} else {
+				statusText = lipgloss.NewStyle().
+					Foreground(mutedColor).
+					Render(fmt.Sprintf("Retrying connection (%d/%d)%s%s", m.reconnectAttempt, m.maxReconnects, dots, spaces))
+			}
+		} else {
+			statusText = errorStyle.Render(fmt.Sprintf("Connection failed after %d attempts", m.maxReconnects))
+		}
+	} else {
+		statusText = lipgloss.NewStyle().
+			Foreground(mutedColor).
+			Render("Connecting" + dots + spaces)
 	}
 
-	// Main content
+	// Main content - just title and status
 	mainContent := lipgloss.JoinVertical(
 		lipgloss.Center,
 		title,
-		subtitle,
 		"\n\n",
-		status,
-		errorMsg,
+		statusText,
 	)
 
-	// Instructions at bottom
-	instructions := instructionStyle.Render(
-		mutedStyle.Render("Connecting to ") + highlightStyle.Render(m.serverURL) + "  •  " +
-			mutedStyle.Render("ESC to quit"))
+	// Simple instructions
+	instructions := mutedStyle.Render("ESC to quit")
 
 	// Layout
-	centeredMain := lipgloss.Place(m.width, m.height-5, lipgloss.Center, lipgloss.Center, mainContent)
-	bottomInstructions := lipgloss.Place(m.width, 3, lipgloss.Center, lipgloss.Bottom, instructions)
+	centeredMain := lipgloss.Place(m.width, m.height-3, lipgloss.Center, lipgloss.Center, mainContent)
+	bottomInstructions := lipgloss.Place(m.width, 2, lipgloss.Center, lipgloss.Bottom, instructions)
 
 	return centeredMain + "\n" + bottomInstructions
 }

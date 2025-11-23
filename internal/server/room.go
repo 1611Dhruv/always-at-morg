@@ -1,7 +1,7 @@
 package server
 
 import (
-	"log"
+	"log" //logs messages
 	"sync"
 	"time"
 
@@ -11,27 +11,27 @@ import (
 
 // Room represents a game room/session
 type Room struct {
-	ID       string
-	Clients  map[string]*Client
-	GameState *protocol.GameState
+	ID          string
+	Clients     map[string]*Client
+	GameState   *protocol.GameState
+	chatManager *ChatManager
 
 	mu          sync.RWMutex
-	broadcast   chan []byte
-	register    chan *Client
+	broadcast   chan []byte //this is private to room only, used to send messages to all clients in the room
+	register    chan *Client //clients register to room, used when a new client joins
+	
 	unregister  chan *Client
 	tickRate    time.Duration
 }
 
 // NewRoom creates a new game room
-func NewRoom(id string) *Room {
+func NewRoom(id string, chatManager *ChatManager) *Room {
 	return &Room{
-		ID:       id,
-		Clients:  make(map[string]*Client),
-		GameState: &protocol.GameState{
-			Players:  make(map[string]protocol.Player),
-			Entities: []protocol.Entity{},
-			Tick:     0,
-		},
+		ID:          id,
+		Clients:     make(map[string]*Client),
+		GameState:   &protocol.GameState{Tick: 0},
+		chatManager: chatManager,
+
 		broadcast:  make(chan []byte, 256),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
@@ -56,7 +56,7 @@ func (r *Room) Run() {
 			r.handleBroadcast(message)
 
 		case <-ticker.C:
-			r.update()
+			r.update(r.chatManager)
 		}
 	}
 }
@@ -66,17 +66,6 @@ func (r *Room) handleRegister(client *Client) {
 	defer r.mu.Unlock()
 
 	r.Clients[client.ID] = client
-
-	// Create player
-	player := protocol.Player{
-		ID:    client.ID,
-		Name:  client.Name,
-		X:     10 + len(r.GameState.Players)*5,
-		Y:     10,
-		Color: r.getRandomColor(),
-		Score: 0,
-	}
-	r.GameState.Players[client.ID] = player
 
 	log.Printf("Player %s joined room %s", client.Name, r.ID)
 
@@ -89,10 +78,6 @@ func (r *Room) handleRegister(client *Client) {
 	client.send <- msg
 
 	// Broadcast player joined to others
-	broadcastMsg, _ := protocol.EncodeMessage(protocol.MsgPlayerJoined, protocol.PlayerJoinedPayload{
-		Player: player,
-	})
-	r.broadcastToOthers(client.ID, broadcastMsg)
 }
 
 func (r *Room) handleUnregister(client *Client) {
@@ -101,16 +86,10 @@ func (r *Room) handleUnregister(client *Client) {
 
 	if _, ok := r.Clients[client.ID]; ok {
 		delete(r.Clients, client.ID)
-		delete(r.GameState.Players, client.ID)
 		close(client.send)
 
 		log.Printf("Player %s left room %s", client.Name, r.ID)
 
-		// Broadcast player left
-		msg, _ := protocol.EncodeMessage(protocol.MsgPlayerLeft, protocol.PlayerLeftPayload{
-			PlayerID: client.ID,
-		})
-		r.broadcast <- msg
 	}
 }
 
@@ -128,30 +107,35 @@ func (r *Room) handleBroadcast(message []byte) {
 	}
 }
 
-func (r *Room) broadcastToOthers(excludeID string, message []byte) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	for id, client := range r.Clients {
-		if id != excludeID {
-			select {
-			case client.send <- message:
-			default:
-				close(client.send)
-				delete(r.Clients, id)
-			}
-		}
-	}
-}
-
 // update runs the game logic and broadcasts state
-func (r *Room) update() {
+func (r *Room) update(chatManager *ChatManager) {
 	r.mu.Lock()
 	r.GameState.Tick++
 
 	// Add game logic here (e.g., entity movement, collision detection)
 
 	r.mu.Unlock()
+
+	// Broadcast announcements
+	announcements := chatManager.GetAnnouncements()
+	for _, announcement := range announcements {
+		payload := protocol.AnnouncementPayload{
+			Message:   announcement.Message,
+			Timestamp: announcement.Timestamp,
+		}
+		announcementMsg, _ := protocol.EncodeMessage(protocol.MsgAnnouncement, payload)
+		r.broadcast <- announcementMsg
+	}
+
+	// Broadcast global chat messages
+	messages := chatManager.GetGlobalMessages(r)
+	if len(messages) > 0 {
+		payload := protocol.GlobalChatMessagesPayload{
+			Messages: messages,
+		}
+		chatMsg, _ := protocol.EncodeMessage(protocol.MsgGlobalChatMessages, payload)
+		r.broadcast <- chatMsg
+	}
 
 	// Broadcast game state to all clients
 	msg, _ := protocol.EncodeMessage(protocol.MsgGameState, r.GameState)
@@ -163,28 +147,20 @@ func (r *Room) UpdatePlayerPosition(playerID string, x, y int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if player, ok := r.GameState.Players[playerID]; ok {
-		player.X = x
-		player.Y = y
-		r.GameState.Players[playerID] = player
-	}
-}
-
-func (r *Room) getRandomColor() string {
-	colors := []string{"red", "green", "blue", "yellow", "magenta", "cyan"}
-	return colors[len(r.GameState.Players)%len(colors)]
 }
 
 // RoomManager manages all game rooms
 type RoomManager struct {
-	rooms map[string]*Room
-	mu    sync.RWMutex
+	rooms       map[string]*Room
+	chatManager *ChatManager
+	mu          sync.RWMutex
 }
 
 // NewRoomManager creates a new room manager
-func NewRoomManager() *RoomManager {
+func NewRoomManager(chatManager *ChatManager) *RoomManager {
 	return &RoomManager{
-		rooms: make(map[string]*Room),
+		rooms:       make(map[string]*Room),
+		chatManager: chatManager,
 	}
 }
 
@@ -202,7 +178,7 @@ func (rm *RoomManager) GetOrCreateRoom(roomID string) *Room {
 		roomID = uuid.New().String()
 	}
 
-	room := NewRoom(roomID)
+	room := NewRoom(roomID, rm.chatManager)
 	rm.rooms[roomID] = room
 
 	go room.Run()
