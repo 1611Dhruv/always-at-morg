@@ -34,7 +34,16 @@ type GameStateEvent struct{}
 
 func (GameStateEvent) isEvent() {}
 
-// Chat Message event:
-type ChatMessageEvent struct{}
+// Global chat messages event
+type GlobalChatMessagesEvent struct {
+	Messages []ChatMessage
+}
 
-func (ChatMessageEvent) isEvent() {}
+func (GlobalChatMessagesEvent) isEvent() {}
+
+// ChatMessage represents a single chat message
+type ChatMessage struct {
+	Username  string
+	Message   string
+	Timestamp int64
+}

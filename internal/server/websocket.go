@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	writeWait      = 10 * time.Second 
-	pongWait       = 60 * time.Second //time allowed to read the next pong message from client
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second    //time allowed to read the next pong message from client
 	pingPeriod     = (pongWait * 9) / 10 //send pings to client with this period. must be less than pongWait
 	maxMessageSize = 512
 )
@@ -69,7 +69,7 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		send: make(chan []byte, 256),
 	}
 
-	go client.writePump() 
+	go client.writePump()
 	go client.readPump(s)
 }
 
@@ -281,10 +281,7 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			return
 		}
 
-		messages := s.chatManager.GetGlobalMessages(c.Room)
-		payload := protocol.GlobalChatMessagesPayload{
-			Messages: messages,
-		}
+		payload := s.chatManager.GetGlobalMessages(c.Room)
 
 		msg, err := protocol.EncodeMessage(protocol.MsgGlobalChatMessages, payload)
 		if err != nil {

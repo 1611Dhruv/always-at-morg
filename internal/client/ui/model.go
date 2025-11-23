@@ -46,9 +46,9 @@ type Model struct {
 	serverURL        string
 	roomID           string // Room to join
 	userName         string
-	reconnectAttempt int    // Current reconnection attempt (0-5)
-	maxReconnects    int    // Maximum reconnection attempts
-	waitingToRetry   bool   // True when waiting for retry delay
+	reconnectAttempt int  // Current reconnection attempt (0-5)
+	maxReconnects    int  // Maximum reconnection attempts
+	waitingToRetry   bool // True when waiting for retry delay
 
 	// Chat system
 	chatMode        ChatMode
@@ -251,12 +251,14 @@ func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd
 		m.viewState = ViewMainGame
 		return m, listenForEventsCmd(m.connMgr, m.eventChan)
 
-	// ============================================
-	// CHAT EVENTS
-	// ============================================
-	case connection.ChatMessageEvent:
-		// Received a chat message
-		// TODO: Add to chat panel
+	case connection.GlobalChatMessagesEvent:
+		// Receive all global chat messages from server (replace, don't append)
+		m.chatMessages = make([]string, 0, len(e.Messages))
+		for _, msg := range e.Messages {
+			// Format: [Username] Message
+			formattedMsg := highlightStyle.Render("["+msg.Username+"]") + " " + msg.Message
+			m.chatMessages = append(m.chatMessages, formattedMsg)
+		}
 		return m, listenForEventsCmd(m.connMgr, m.eventChan)
 
 	case connection.OnboardRequestEvent:
