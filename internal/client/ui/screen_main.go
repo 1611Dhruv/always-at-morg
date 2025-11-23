@@ -72,14 +72,13 @@ func initStyledCache() {
 		styledCache["B"] = backgroundBStyle
 		styledCache["T"] = televisionStyle
 		styledCache["t"] = tableStyle
+		styledCache["p"] = plantStyle
 		styledCache["W"] = whiteboardStyle
 		styledCache[" "] = backgroundStyle
 		styledCache["-1"] = backgroundStyle
 		// Pre-cache room numbers 1-50 (more than enough)
-		// Using a darker, more neutral grey #9ca3af (tailwind gray-400)
-		roomFloorStyleCached := lipgloss.NewStyle().Background(lipgloss.Color("#9ca3af")).Render(" ")
 		for i := 1; i <= 50; i++ {
-			styledCache[strconv.Itoa(i)] = roomFloorStyleCached
+			styledCache[strconv.Itoa(i)] = roomFloorStyle
 		}
 	})
 }
@@ -523,40 +522,51 @@ func (m Model) viewMainGame() string {
 
 var (
 	wallStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#5C4A37")). // Warm medium brown (walls)
+			Background(lipgloss.Color("#8B6F47")). // Brighter warm brown (walls)
 			Render(" ")
 
 	inaccessibleStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#6B5B4A")). // Warm tan-brown (inaccessible)
+				Background(lipgloss.Color("#9B8B6A")). // Brighter tan-brown (inaccessible)
 				Render(" ")
 
 	roomStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#4A5D4A")). // Muted sage green (rooms)
-			Render(" ")
+			Background(lipgloss.Color("#6A8D6A")). // Brighter sage green (rooms)
+			Render("░") // Light shade (U+2591, single-width)
 
 	entranceStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#6A7D6A")). // Lighter sage green (entrances)
+			Background(lipgloss.Color("#7A9D7A")). // Brighter light sage green (entrances)
 			Render(" ")
 
 	backgroundStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#D2B48C")). // Warm light beige - easy on the eyes
+			Background(lipgloss.Color("#FFF8DC")). // Pale yellow (floor/hallway)
 			Render(" ")
 
 	backgroundOutsideStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#000000")). // Black - inaccessible background ('b')
-				Render(" ")
+			Foreground(lipgloss.Color("#000000")). // Black dot
+			Background(lipgloss.Color("#B3D9FF")). // Pale blue background
+			Render("·")
+
+	roomFloorStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#B8C5D4")). // Brighter grey-blue
+			Render("~")
 
 	backgroundBStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2a2a2a")). // Dark grey - internal inaccessible ('B')
-				Render(" ")
+			Foreground(lipgloss.Color("#6A8D6A")). // Sage green
+			Background(lipgloss.Color("#2a2a2a")). // Dark grey - internal inaccessible ('B')
+			Render("^")
 
 	televisionStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#000000")). // Black - television ('T')
 				Render(" ")
 
 	tableStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#A0826D")). // Between beige and brown - table ('t')
-				Render(" ")
+			Background(lipgloss.Color("#C4A082")). // Brighter brown - table ('t')
+			Render(" ")
+
+	plantStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6A8D6A")).
+			Background(lipgloss.Color("#7A9D7A")). // Brighter light sage green - plant ('p')
+			Render("*")
 
 	whiteboardStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#FFFFFF")). // White - whiteboard ('W')
@@ -566,22 +576,22 @@ var (
 				Render(" ") // Transparent - no background color
 	// Player rendering styles
 	currentPlayerUsernameStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray (almost black but visible)
-					Background(lipgloss.Color("#D2B48C")). // Match background
-					Bold(true)
+				Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray (almost black but visible)
+				Background(lipgloss.Color("#FFF8DC")). // Match background (pale yellow)
+				Bold(true)
 
 	otherPlayerUsernameStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#333333")). // Dark gray
-					Background(lipgloss.Color("#D2B48C"))  // Match background
+				Foreground(lipgloss.Color("#333333")). // Dark gray
+				Background(lipgloss.Color("#FFF8DC"))  // Match background (pale yellow)
 
 	currentPlayerAvatarStyle = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray
-					Background(lipgloss.Color("#D2B48C")). // Match background
-					Bold(true)
+				Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray
+				Background(lipgloss.Color("#FFF8DC")). // Match background (pale yellow)
+				Bold(true)
 
 	otherPlayerAvatarStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#333333")). // Dark gray
-				Background(lipgloss.Color("#D2B48C"))  // Match background
+			Foreground(lipgloss.Color("#333333")). // Dark gray
+			Background(lipgloss.Color("#FFF8DC"))  // Match background (pale yellow)
 )
 
 // StyledCell represents a single grid cell with optional player overlay
@@ -605,8 +615,8 @@ func getStyledCharFromRoomValue(value string) string {
 	var styled string
 	// Check if it's a room number (numeric string)
 	if _, err := strconv.Atoi(value); err == nil {
-		// It's a room number - render as darker neutral grey
-		styled = lipgloss.NewStyle().Background(lipgloss.Color("#9ca3af")).Render(" ")
+		// It's a room number - render as brighter grey-blue with wavy pattern
+		styled = roomFloorStyle
 	} else {
 		// Any other character - use beige background
 		styled = backgroundStyle
@@ -620,13 +630,13 @@ func getStyledCharFromRoomValue(value string) string {
 func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
 	switch value {
 	case "r": // room wall
-		return lipgloss.Color("#4A5D4A") // Sage green
+		return lipgloss.Color("#6A8D6A") // Brighter sage green
 	case "o": // outer wall
-		return lipgloss.Color("#5C4A37") // Brown
+		return lipgloss.Color("#8B6F47") // Brighter brown
 	case "i": // inaccessible
-		return lipgloss.Color("#6B5B4A") // Tan-brown
+		return lipgloss.Color("#9B8B6A") // Brighter tan-brown
 	case "e": // entrance
-		return lipgloss.Color("#6A7D6A") // Light sage
+		return lipgloss.Color("#7A9D7A") // Brighter light sage
 	case "b": // background/outside
 		return lipgloss.Color("#000000") // Black
 	case "B": // internal inaccessible
@@ -634,21 +644,23 @@ func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
 	case "T": // television
 		return lipgloss.Color("#000000") // Black
 	case "t": // table
-		return lipgloss.Color("#A0826D") // Between beige and brown
+		return lipgloss.Color("#C4A082") // Brighter brown
+	case "p": // plant
+		return lipgloss.Color("#7A9D7A") // Brighter light sage green
 	case "W": // whiteboard
 		return lipgloss.Color("#FFFFFF") // White
 	case " ": // walkable space (hallways)
-		return lipgloss.Color("#D2B48C") // Beige
+		return lipgloss.Color("#FFF8DC") // Pale yellow
 	case "-1": // outside/hallway
-		return lipgloss.Color("#D2B48C") // Beige
+		return lipgloss.Color("#FFF8DC") // Pale yellow
 	default:
 		// Check if it's a room number (numeric string)
 		if _, err := strconv.Atoi(value); err == nil {
-			// It's a room number - render as darker neutral grey
-			return lipgloss.Color("#9ca3af")
+			// It's a room number - render as brighter grey-blue
+			return lipgloss.Color("#B8C5D4")
 		}
-		// Any other character - use beige
-		return lipgloss.Color("#D2B48C") // Default beige
+		// Any other character - use pale yellow
+		return lipgloss.Color("#FFF8DC") // Default pale yellow
 	}
 }
 
@@ -687,7 +699,7 @@ func fillRoomMap() ([250][400]string, error) {
 		for j := 0; j < 400; j++ {
 			char := mapChars[i][j]
 			// Mark wall characters and furniture as themselves
-			if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'W' {
+			if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'p' || char == 'W' {
 				result[i][j] = string(char)
 			}
 			// Leave spaces as "" for now - they'll be filled by flood fill
@@ -742,6 +754,11 @@ func markOutsideSpaces(result *[250][400]string, mapChars *[250][400]rune, start
 
 		// Skip if already marked
 		if result[p.y][p.x] == "-1" {
+			continue
+		}
+
+		// Skip if already set (preserves 'b', 'B', 'T', 't', 'W', etc.)
+		if result[p.y][p.x] != "" {
 			continue
 		}
 
@@ -1145,7 +1162,7 @@ func (m *Model) renderPlayerToOverlay(
 				worldY := cameraY + usernameY
 
 				// Get background color from tile underneath
-				bgColor := lipgloss.Color("#D2B48C") // Default beige
+				bgColor := lipgloss.Color("#FFF8DC") // Default pale yellow
 				if worldY >= 0 && worldY < 250 && worldX >= 0 && worldX < 400 {
 					tileValue := roomData[worldY][worldX]
 					bgColor = getBackgroundColorFromRoomValue(tileValue)
