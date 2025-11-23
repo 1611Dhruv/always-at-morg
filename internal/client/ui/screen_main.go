@@ -119,7 +119,7 @@ func canAvatarFitAt(x, y int) bool {
 		return false
 	}
 
-	// Check all 9 tiles in the 3x3 footprint - all must be ' ' (space)
+	// Check all 9 tiles in the 3x3 footprint - must be ' ' (space) or 'e' (entrance)
 	for dy := -1; dy <= 1; dy++ {
 		for dx := -1; dx <= 1; dx++ {
 			checkX := x + dx
@@ -130,15 +130,15 @@ func canAvatarFitAt(x, y int) bool {
 				return false // Out of bounds
 			}
 
-			// Check if tile is exactly ' ' (space character)
+			// Check if tile is walkable: ' ' (space) or 'e' (entrance)
 			value := roomMap[checkY][checkX]
-			if value != " " {
+			if value != " " && value != "e" {
 				return false // Not a walkable space
 			}
 		}
 	}
 
-	return true // All tiles in 3x3 grid are walkable spaces
+	return true // All tiles in 3x3 grid are walkable
 }
 
 // canMoveTo checks if the player can move to a position
@@ -457,7 +457,11 @@ var (
 			Render(" ")
 
 	backgroundOutsideStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#000000")). // Black - inaccessible background
+				Background(lipgloss.Color("#000000")). // Black - inaccessible background ('b')
+				Render(" ")
+
+	backgroundBStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2a2a2a")). // Dark grey - internal inaccessible ('B')
 				Render(" ")
 
 	transparentStyle = lipgloss.NewStyle().
@@ -501,6 +505,8 @@ func getStyledCharFromRoomValue(value string) string {
 		return entranceStyle
 	case "b": // background/outside (marked by map-fill utility)
 		return backgroundOutsideStyle
+	case "B": // internal inaccessible (dark grey)
+		return backgroundBStyle
 	case " ": // walkable space
 		return backgroundStyle
 	default:
@@ -522,6 +528,8 @@ func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
 		return lipgloss.Color("#6A7D6A") // Light sage
 	case "b": // background/outside
 		return lipgloss.Color("#000000") // Black
+	case "B": // internal inaccessible
+		return lipgloss.Color("#2a2a2a") // Dark grey
 	case " ": // walkable space
 		return lipgloss.Color("#D2B48C") // Beige
 	default:

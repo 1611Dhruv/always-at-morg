@@ -117,6 +117,20 @@ func (tm *TreasureHuntManager) StartGameLoop() {
 func (tm *TreasureHuntManager) startCooldown() {
 	tm.mu.Lock()
 
+	// SAFEGUARD: If already in cooldown or fetching, don't start another one
+	if tm.inCooldown {
+		log.Println("WARNING: startCooldown called but already in cooldown! Ignoring to prevent duplicate Gemini calls.")
+		tm.mu.Unlock()
+		return
+	}
+
+	// SAFEGUARD: If next riddle is already being fetched, don't fetch again
+	if tm.nextRiddle != nil {
+		log.Println("WARNING: startCooldown called but nextRiddle already exists! Ignoring to prevent duplicate Gemini calls.")
+		tm.mu.Unlock()
+		return
+	}
+
 	// Check if we've reached the daily limit (3 questions)
 	if tm.currentRound >= 3 {
 		tm.gameOver = true
@@ -145,6 +159,8 @@ func (tm *TreasureHuntManager) startCooldown() {
 	tm.inCooldown = true
 	tm.waitingForNext = false
 
+	log.Println("Starting cooldown - will fetch ONE riddle from Gemini in 2 minutes")
+
 	// Show cooldown message to clients
 	state := tm.getStateLocked()
 	callback := tm.updateCallback
@@ -171,11 +187,19 @@ func (tm *TreasureHuntManager) startCooldown() {
 			}
 		}
 
+		log.Printf("Gemini API call complete. Riddle generated: %s", riddle.Question)
+
 		// Wait for the remainder of 2 minutes after fetching
 		// (If fetch took 5 seconds, wait 115 more seconds)
 		time.Sleep(2 * time.Minute)
 
 		tm.mu.Lock()
+		// Double-check we don't already have a next riddle (race condition protection)
+		if tm.nextRiddle != nil {
+			log.Println("WARNING: nextRiddle already set! Discarding newly fetched riddle to avoid duplication.")
+			tm.mu.Unlock()
+			return
+		}
 		tm.nextRiddle = riddle
 		tm.mu.Unlock()
 

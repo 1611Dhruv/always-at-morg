@@ -25,7 +25,7 @@ func getGeminiURL() string {
 		key = envKey
 	}
 	// Using gemini-2.0-flash-exp (better quality than lite, respects rate limits)
-	return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=" + key
+	return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + key
 }
 
 // ---------------------------------------------------------
@@ -161,4 +161,3 @@ func rawGeminiCall(prompt string) (string, error) {
 
 	return text, nil
 }
-
