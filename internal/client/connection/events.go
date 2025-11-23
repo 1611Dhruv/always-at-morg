@@ -41,6 +41,14 @@ type GlobalChatMessagesEvent struct {
 
 func (GlobalChatMessagesEvent) isEvent() {}
 
+// TreasureHuntStateEvent updates the UI with the current clue
+type TreasureHuntStateEvent struct {
+	ClueText  string
+	Completed bool
+}
+
+func (TreasureHuntStateEvent) isEvent() {}
+
 // ChatMessage represents a single chat message
 type ChatMessage struct {
 	Username  string

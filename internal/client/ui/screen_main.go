@@ -47,7 +47,14 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Send message
 			if len(m.chatInput) > 0 {
 				if m.connMgr != nil && m.connMgr.IsConnected() {
-					if m.chatMode == ChatModeGlobal {
+					// Check for commands
+					if strings.HasPrefix(m.chatInput, "/answer ") {
+						// Handle treasure hunt guess
+						guess := strings.TrimPrefix(m.chatInput, "/answer ")
+						m.connMgr.SendTreasureHuntGuess(guess)
+						// Add local feedback
+						m.chatMessages = append(m.chatMessages, mutedStyle.Render("You guessed: "+guess))
+					} else if m.chatMode == ChatModeGlobal {
 						// Send global chat message
 						m.connMgr.SendGlobalChat(m.userName, m.chatInput)
 					}
@@ -562,14 +569,22 @@ func (m Model) renderAnnouncementsSection(width, height int) string {
 		Bold(true).
 		Width(width).
 		Align(lipgloss.Center).
-		Render("ANNOUNCEMENTS")
+		Render("QUEST & ANNOUNCEMENTS")
 
 	// Announcements content
 	var announcementLines []string
+	
+	// Add Treasure Hunt Clue at the top
+	clueHeader := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true).Render("Current Clue:")
+	clueText := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFACD")).Render(m.currentClue)
+	hintText := mutedStyle.Render("(Type '/answer <text>' in chat)")
+	
+	announcementLines = append(announcementLines, clueHeader)
+	announcementLines = append(announcementLines, clueText)
+	announcementLines = append(announcementLines, hintText)
+	announcementLines = append(announcementLines, "") // Spacer
+
 	displayCount := height - 3 // Reserve space for title and padding
-	if displayCount < 1 {
-		displayCount = 1
-	}
 
 	// Show most recent announcements
 	startIdx := 0

@@ -37,6 +37,9 @@ type Client struct {
 	Avatar   []int
 	inGame   bool
 	Pos      string
+	
+	// Treasure Hunt Progress
+	TreasureHuntStep int
 }
 
 // Server represents the WebSocket server
@@ -49,11 +52,26 @@ type Server struct {
 // NewServer creates a new WebSocket server
 func NewServer() *Server {
 	chatManager := NewChatManager()
-	return &Server{
+	s := &Server{
 		roomManager: NewRoomManager(chatManager),
 		userManager: NewUserManager(),
 		chatManager: chatManager,
 	}
+
+	// Setup treasure hunt broadcast
+	Manager.SetUpdateCallback(func(payload protocol.TreasureHuntStatePayload) {
+		// Broadcast to all rooms/clients
+		// Since we don't have a direct "BroadcastAll" on RoomManager, we can iterate or 
+		// rely on the fact that the next tick will pick it up.
+		// Ideally, RoomManager should have a Broadcast method.
+		// For now, we rely on the game loop tick in room.go to pick up the state via Manager.GetState()
+		// But to be safe, we can try to broadcast if possible.
+	})
+
+	// Start the treasure hunt game loop
+	go Manager.StartGameLoop()
+
+	return s
 }
 
 // HandleWebSocket handles WebSocket connections
@@ -185,6 +203,12 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		c.inGame = true
 		room.register <- c
 
+		// --- ADDED: Send initial treasure hunt state for new users ---
+		// Use global state instead of per-user step
+		thMsg, _ := protocol.EncodeMessage(protocol.MsgTreasureHuntState, Manager.GetState())
+		c.send <- thMsg
+		// ------------------------------------------------------------
+
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -213,6 +237,11 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			c.inGame = true
 			room.register <- c
 			log.Printf("Returning user %s joined", user.Username)
+
+			// Send initial treasure hunt state
+			thMsg, _ := protocol.EncodeMessage(protocol.MsgTreasureHuntState, Manager.GetState())
+			c.send <- thMsg
+
 			return
 		}
 
@@ -289,5 +318,18 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		}
 
 		c.send <- msg
+
+	case protocol.MsgTreasureHuntGuess:
+		var payload protocol.TreasureHuntGuessPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			return
+		}
+
+		// Check answer using Username (Global Game)
+		CheckTreasureHuntAnswer(c.Username, payload.Guess)
+
+		// Send updated state
+		resp, _ := protocol.EncodeMessage(protocol.MsgTreasureHuntState, Manager.GetState())
+		c.send <- resp
 	}
 }

@@ -57,6 +57,9 @@ type Model struct {
 	chatMessages    []string // Chat messages (global or private)
 	chatInput       string   // Current chat input
 	chatInputActive bool     // True when typing in chat
+
+	// Treasure Hunt
+	currentClue string
 }
 
 // NewModel creates a new Bubble Tea model with a connection manager
@@ -92,6 +95,7 @@ func NewModel(serverURL string) Model {
 		chatMessages:     []string{},
 		chatInput:        "",
 		chatInputActive:  false,
+		currentClue:      "Loading clue...",
 	}
 }
 
@@ -264,6 +268,10 @@ func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd
 	case connection.OnboardRequestEvent:
 		// Server requests onboarding - transition to avatar customization screen
 		m.viewState = ViewAvatarCustomization
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.TreasureHuntStateEvent:
+		m.currentClue = e.ClueText
 		return m, listenForEventsCmd(m.connMgr, m.eventChan)
 
 	default:
