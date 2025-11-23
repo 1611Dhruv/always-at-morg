@@ -46,10 +46,10 @@ var roomCoordinates = []RoomCoord{
 }
 
 var (
-	roomMap       [250][400]string
-	roomMapOnce   sync.Once
-	roomMapErr    error
-	styledCache   map[string]string // Cache for styled strings to avoid recreating them
+	roomMap        [250][400]string
+	roomMapOnce    sync.Once
+	roomMapErr     error
+	styledCache    map[string]string // Cache for styled strings to avoid recreating them
 	styleCacheOnce sync.Once
 )
 
@@ -74,6 +74,8 @@ func initStyledCache() {
 		styledCache["t"] = tableStyle
 		styledCache["p"] = plantStyle
 		styledCache["W"] = whiteboardStyle
+		styledCache["@"] = darkBrownStyle
+		styledCache["c"] = couchStyle
 		styledCache[" "] = backgroundStyle
 		styledCache["-1"] = backgroundStyle
 		// Pre-cache room numbers 1-50 (more than enough)
@@ -531,7 +533,7 @@ var (
 
 	roomStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#6A8D6A")). // Brighter sage green (rooms)
-			Render("░") // Light shade (U+2591, single-width)
+			Render("░")                            // Light shade (U+2591, single-width)
 
 	entranceStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#7A9D7A")). // Brighter light sage green (entrances)
@@ -542,22 +544,22 @@ var (
 			Render(" ")
 
 	backgroundOutsideStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#000000")). // Black dot
-			Background(lipgloss.Color("#B3D9FF")). // Pale blue background
-			Render("·")
+				Foreground(lipgloss.Color("#000000")). // Black dot
+				Background(lipgloss.Color("#B3D9FF")). // Pale blue background
+				Render("·")
 
 	roomFloorStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#B8C5D4")). // Brighter grey-blue
 			Render("~")
 
 	backgroundBStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#6A8D6A")). // Sage green
-			Background(lipgloss.Color("#2a2a2a")). // Dark grey - internal inaccessible ('B')
-			Render("^")
+				Foreground(lipgloss.Color("#6A8D6A")). // Sage green
+				Background(lipgloss.Color("#2a2a2a")). // Dark grey - internal inaccessible ('B')
+				Render("^")
 
 	televisionStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#000000")). // Black - television ('T')
-				Render(" ")
+			Background(lipgloss.Color("#000000")). // Black - television ('T')
+			Render(" ")
 
 	tableStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#C4A082")). // Brighter brown - table ('t')
@@ -569,29 +571,37 @@ var (
 			Render("*")
 
 	whiteboardStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#FFFFFF")). // White - whiteboard ('W')
-				Render(" ")
+			Background(lipgloss.Color("#FFFFFF")). // White - whiteboard ('W')
+			Render(" ")
+
+	darkBrownStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#5C4033")). // Dark brown ('@')
+			Render(" ")
+
+	couchStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#4A5568")). // Navy blue-grey - couch ('c')
+			Render("▬")                            // Horizontal bar for couch
 
 	transparentStyle = lipgloss.NewStyle().
 				Render(" ") // Transparent - no background color
 	// Player rendering styles
 	currentPlayerUsernameStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray (almost black but visible)
-				Background(lipgloss.Color("#FFF8DC")). // Match background (pale yellow)
-				Bold(true)
+					Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray (almost black but visible)
+					Background(lipgloss.Color("#FFF8DC")). // Match background (pale yellow)
+					Bold(true)
 
 	otherPlayerUsernameStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#333333")). // Dark gray
-				Background(lipgloss.Color("#FFF8DC"))  // Match background (pale yellow)
+					Foreground(lipgloss.Color("#333333")). // Dark gray
+					Background(lipgloss.Color("#FFF8DC"))  // Match background (pale yellow)
 
 	currentPlayerAvatarStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray
-				Background(lipgloss.Color("#FFF8DC")). // Match background (pale yellow)
-				Bold(true)
+					Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray
+					Background(lipgloss.Color("#FFF8DC")). // Match background (pale yellow)
+					Bold(true)
 
 	otherPlayerAvatarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#333333")). // Dark gray
-			Background(lipgloss.Color("#FFF8DC"))  // Match background (pale yellow)
+				Foreground(lipgloss.Color("#333333")). // Dark gray
+				Background(lipgloss.Color("#FFF8DC"))  // Match background (pale yellow)
 )
 
 // StyledCell represents a single grid cell with optional player overlay
@@ -649,6 +659,10 @@ func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
 		return lipgloss.Color("#7A9D7A") // Brighter light sage green
 	case "W": // whiteboard
 		return lipgloss.Color("#FFFFFF") // White
+	case "@": // dark brown
+		return lipgloss.Color("#5C4033") // Dark brown
+	case "c": // couch
+		return lipgloss.Color("#4A5568") // Navy blue-grey (couch)
 	case " ": // walkable space (hallways)
 		return lipgloss.Color("#FFF8DC") // Pale yellow
 	case "-1": // outside/hallway
@@ -699,7 +713,7 @@ func fillRoomMap() ([250][400]string, error) {
 		for j := 0; j < 400; j++ {
 			char := mapChars[i][j]
 			// Mark wall characters and furniture as themselves
-			if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'p' || char == 'W' {
+			if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'p' || char == 'W' || char == '@' || char == 'c' {
 				result[i][j] = string(char)
 			}
 			// Leave spaces as "" for now - they'll be filled by flood fill
@@ -1328,7 +1342,7 @@ func (m Model) renderQuestBox(width, height int) string {
 
 	questContent := lipgloss.NewStyle().
 		Width(width).
-		Height(height - 2).
+		Height(height-2).
 		Padding(0, 1).
 		Render(strings.Join(contentLines, "\n"))
 
@@ -1496,12 +1510,12 @@ func (m Model) renderAnnouncementsSection(width, height int) string {
 
 	// Announcements content
 	var announcementLines []string
-	
+
 	// Add Treasure Hunt Clue at the top
 	clueHeader := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true).Render("Current Clue:")
 	clueText := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFACD")).Render(m.currentClue)
 	hintText := mutedStyle.Render("(Type '/answer <text>' in chat)")
-	
+
 	announcementLines = append(announcementLines, clueHeader)
 	announcementLines = append(announcementLines, clueText)
 	announcementLines = append(announcementLines, hintText)

@@ -83,7 +83,7 @@ func (r *Room) Run() {
 }
 
 // findRandomSpawnPosition finds a random valid spawn position in the room
-// A valid position must have all 9 tiles in the 3x3 area as empty spaces ' '
+// A valid position must have all 9 tiles in the 3x3 area as walkable (' ' or '@')
 func (r *Room) findRandomSpawnPosition() (string, error) {
 	maxAttempts := 1000
 	for i := 0; i < maxAttempts; i++ {
@@ -91,7 +91,7 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 		y := rand.Intn(250)
 		posStr := fmt.Sprintf("%d:%d", y, x) // Format: "Y:X" to match client expectation
 
-		// Check if all 9 tiles in the 3x3 area are empty spaces ' '
+		// Check if all 9 tiles in the 3x3 area are walkable (' ' or '@')
 		valid := true
 		for dy := -1; dy <= 1; dy++ {
 			for dx := -1; dx <= 1; dx++ {
@@ -104,9 +104,9 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 					break
 				}
 
-				// Get value - must be exactly ' ' (space character)
+				// Get value - must be walkable (' ' space or '@' dark brown floor)
 				cellValue := r.GameState.Map[ny][nx]
-				if cellValue != " " {
+				if cellValue != " " && cellValue != "@" {
 					valid = false
 					break
 				}
@@ -265,8 +265,9 @@ func (r *Room) isWalkable(x, y int) bool {
 	value := r.GameState.Map[y][x]
 
 	// Wall characters ("r", "o", "i") are not walkable
-	// "e" (entrances), "-1" (hallways), and room numbers ("1", "2", "3", ...) are walkable
-	return value != "r" && value != "o" && value != "i"
+	// "e" (entrances), "-1" (hallways), "@" (dark brown), and room numbers ("1", "2", "3", ...) are walkable
+	// "c" (couch) is not walkable (furniture)
+	return value != "r" && value != "o" && value != "i" && value != "c"
 }
 
 // canAvatarFitAt checks if a 3x3 avatar can fit at the given position
@@ -283,9 +284,9 @@ func (r *Room) canAvatarFitAt(x, y int) bool {
 				return false // Out of bounds
 			}
 
-			// Check if tile is walkable: ' ' (hallway), 'e' (entrance), "-1" (outside), or room numbers ("1", "2", etc.)
+			// Check if tile is walkable: ' ' (hallway), 'e' (entrance), "-1" (outside), '@' (dark brown floor), or room numbers ("1", "2", etc.)
 			value := r.GameState.Map[checkY][checkX]
-			if value == " " || value == "e" || value == "-1" {
+			if value == " " || value == "e" || value == "-1" || value == "@" {
 				// Explicitly walkable
 				continue
 			}
