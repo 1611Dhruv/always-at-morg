@@ -5,7 +5,7 @@ set -e
 # Usage: curl -fsSL https://web.always-at-mor.big/install.sh | bash
 
 VERSION="${VERSION:-latest}"
-BASE_URL="https://web.always-at-mor.big/releases"
+BASE_URL="https://web.always-at-morg.bid/releases"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # Color codes

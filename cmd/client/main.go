@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	serverURL := flag.String("server", "ws://web.always-at-mor.big:8080/ws", "WebSocket server URL")
+	serverURL := flag.String("server", "ws://join.always-at-morg.bid/ws", "WebSocket server URL")
 	screen := flag.String("screen", "", "Screen to display (for testing): loading, username, avatar, game")
 	flag.Parse()
 
