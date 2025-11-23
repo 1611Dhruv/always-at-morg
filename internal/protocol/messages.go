@@ -15,6 +15,7 @@ const (
 
 	MsgChatMessage  MessageType = "chat_message"        // one to one
 	MsgGlobalChat   MessageType = "global_chat_message" // me sending u messaeg?
+	MsgRoomChat     MessageType = "room_chat_message"   // room chat
 	MsgAnnouncement MessageType = "announcement"
 
 	// Server -> Client
@@ -26,7 +27,8 @@ const (
 	MsgPlayerLeft         MessageType = "player_left"
 	MsgError              MessageType = "error"
 	MsgGlobalChatMessages MessageType = "global_chat_messages"
-	MsgKuluchifiedState   MessageType = "kuluchified_state" // Unified per-tick state update
+	MsgRoomChatMessages   MessageType = "room_chat_messages" // room chat history
+	MsgKuluchifiedState   MessageType = "kuluchified_state"  // Unified per-tick state update
 
 	//chat and interaction
 	MsgNearbyPlayers MessageType = "nearby_players" // take lite
@@ -96,6 +98,14 @@ type GlobalChatPayload struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+// room chat message payload for messages sent to room occupants
+type RoomChatPayload struct {
+	RoomNumber string `json:"room_number"`
+	Username   string `json:"username"`
+	Message    string `json:"message"`
+	Timestamp  int64  `json:"timestamp"`
+}
+
 // announcement payload for server-wide messages
 type AnnouncementPayload struct {
 	Message   string `json:"message"`
@@ -116,13 +126,19 @@ type GlobalChatMessagesPayload struct {
 	Messages []GlobalChatPayload `json:"messages"`
 }
 
+type RoomChatMessagesPayload struct {
+	RoomNumber string            `json:"room_number"`
+	Messages   []RoomChatPayload `json:"messages"`
+}
+
 // KuluchifiedStatePayload is the unified per-tick state update containing everything
 type KuluchifiedStatePayload struct {
-	GameState         GameState                `json:"game_state"`
-	ChatMessages      []GlobalChatPayload      `json:"chat_messages"`
-	Announcements     []AnnouncementPayload    `json:"announcements"`
-	Players           map[string]Player        `json:"players"`
-	TreasureHuntState TreasureHuntStatePayload `json:"treasure_hunt_state"`
+	GameState         GameState                   `json:"game_state"`
+	ChatMessages      []GlobalChatPayload         `json:"chat_messages"`
+	RoomChatMessages  map[string][]RoomChatPayload `json:"room_chat_messages"` // Key: room number
+	Announcements     []AnnouncementPayload       `json:"announcements"`
+	Players           map[string]Player           `json:"players"`
+	TreasureHuntState TreasureHuntStatePayload    `json:"treasure_hunt_state"`
 }
 
 // TreasureHuntGuessPayload is sent by client to guess an answer

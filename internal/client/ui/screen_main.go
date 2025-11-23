@@ -12,10 +12,45 @@ import (
 	"github.com/yourusername/always-at-morg/internal/protocol"
 )
 
+type RoomCoord struct {
+	X    int
+	Y    int
+	Name string
+}
+
+// Room coordinates - each is a starting point for flood fill
+var roomCoordinates = []RoomCoord{
+	{X: 55, Y: 16, Name: "1"},
+	{X: 60, Y: 25, Name: "2"},
+	{X: 64, Y: 35, Name: "3"},
+	{X: 98, Y: 35, Name: "4"},
+	{X: 120, Y: 34, Name: "5"},
+	{X: 144, Y: 36, Name: "6"},
+	{X: 164, Y: 36, Name: "7"},
+	{X: 178, Y: 36, Name: "8"},
+	{X: 190, Y: 36, Name: "9"},
+	{X: 205, Y: 36, Name: "10"},
+	{X: 226, Y: 36, Name: "11"},
+	{X: 260, Y: 36, Name: "12"},
+	{X: 47, Y: 51, Name: "13"},
+	{X: 61, Y: 66, Name: "14"},
+	{X: 48, Y: 87, Name: "15"},
+	{X: 16, Y: 120, Name: "16"},
+	{X: 41, Y: 145, Name: "17"},
+	{X: 38, Y: 164, Name: "18"},
+	{X: 17, Y: 181, Name: "19"},
+	{X: 31, Y: 181, Name: "20"},
+	{X: 51, Y: 181, Name: "21"},
+	{X: 56, Y: 223, Name: "22"},
+	{X: 96, Y: 218, Name: "23"},
+}
+
 var (
-	roomMap     [250][400]string
-	roomMapOnce sync.Once
-	roomMapErr  error
+	roomMap       [250][400]string
+	roomMapOnce   sync.Once
+	roomMapErr    error
+	styledCache   map[string]string // Cache for styled strings to avoid recreating them
+	styleCacheOnce sync.Once
 )
 
 func getRoomMap() ([250][400]string, error) {
@@ -23,6 +58,30 @@ func getRoomMap() ([250][400]string, error) {
 		roomMap, roomMapErr = fillRoomMap()
 	})
 	return roomMap, roomMapErr
+}
+
+func initStyledCache() {
+	styleCacheOnce.Do(func() {
+		styledCache = make(map[string]string)
+		// Pre-cache common values
+		styledCache["r"] = roomStyle
+		styledCache["o"] = wallStyle
+		styledCache["i"] = inaccessibleStyle
+		styledCache["e"] = entranceStyle
+		styledCache["b"] = backgroundOutsideStyle
+		styledCache["B"] = backgroundBStyle
+		styledCache["T"] = televisionStyle
+		styledCache["t"] = tableStyle
+		styledCache["W"] = whiteboardStyle
+		styledCache[" "] = backgroundStyle
+		styledCache["-1"] = backgroundStyle
+		// Pre-cache room numbers 1-50 (more than enough)
+		// Using a darker, more neutral grey #9ca3af (tailwind gray-400)
+		roomFloorStyleCached := lipgloss.NewStyle().Background(lipgloss.Color("#9ca3af")).Render(" ")
+		for i := 1; i <= 50; i++ {
+			styledCache[strconv.Itoa(i)] = roomFloorStyleCached
+		}
+	})
 }
 
 // parsePosition parses a position string "Y:X" into integer coordinates
@@ -119,7 +178,7 @@ func canAvatarFitAt(x, y int) bool {
 		return false
 	}
 
-	// Check all 9 tiles in the 3x3 footprint - must be ' ' (space) or 'e' (entrance)
+	// Check all 9 tiles in the 3x3 footprint - must be walkable
 	for dy := -1; dy <= 1; dy++ {
 		for dx := -1; dx <= 1; dx++ {
 			checkX := x + dx
@@ -130,11 +189,19 @@ func canAvatarFitAt(x, y int) bool {
 				return false // Out of bounds
 			}
 
-			// Check if tile is walkable: ' ' (space) or 'e' (entrance)
+			// Check if tile is walkable: ' ' (hallway), 'e' (entrance), "-1" (outside), or room numbers ("1", "2", etc.)
 			value := roomMap[checkY][checkX]
-			if value != " " && value != "e" {
-				return false // Not a walkable space
+			if value == " " || value == "e" || value == "-1" {
+				// Explicitly walkable
+				continue
 			}
+			// Check if it's a room number (numeric string)
+			if _, err := strconv.Atoi(value); err == nil {
+				// It's a room number - walkable
+				continue
+			}
+			// Not walkable (walls, inaccessible areas, furniture T/t/W, etc.)
+			return false
 		}
 	}
 
@@ -219,6 +286,15 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					} else if m.chatMode == ChatModePrivate && m.chatTarget != "" {
 						// Send private message to selected player
 						m.connMgr.SendChatMessage(m.userName, m.chatTarget, m.chatInput)
+					} else if m.chatMode == ChatModeRoom {
+						// Send room chat message
+						roomNum := m.getCurrentPlayerRoom()
+						if roomNum != "" {
+							m.connMgr.SendRoomChat(m.userName, roomNum, m.chatInput)
+						} else {
+							// Add local feedback that they're not in a room
+							m.globalChatMessages = append(m.globalChatMessages, mutedStyle.Render("You must be in a room to use room chat"))
+						}
 					}
 				}
 				// Clear input but stay in chat mode
@@ -259,6 +335,10 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 
+	case "r", "R":
+		// Refresh screen - clear and redraw
+		return m, tea.ClearScreen
+
 	// Chat controls
 	case "t", "T":
 		// Start typing in chat
@@ -269,6 +349,12 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g", "G":
 		// Switch to global chat
 		m.chatMode = ChatModeGlobal
+		m.chatTarget = ""
+		return m, nil
+
+	case "o", "O":
+		// Switch to room chat
+		m.chatMode = ChatModeRoom
 		m.chatTarget = ""
 		return m, nil
 
@@ -464,6 +550,18 @@ var (
 				Background(lipgloss.Color("#2a2a2a")). // Dark grey - internal inaccessible ('B')
 				Render(" ")
 
+	televisionStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#000000")). // Black - television ('T')
+				Render(" ")
+
+	tableStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#A0826D")). // Between beige and brown - table ('t')
+				Render(" ")
+
+	whiteboardStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#FFFFFF")). // White - whiteboard ('W')
+				Render(" ")
+
 	transparentStyle = lipgloss.NewStyle().
 				Render(" ") // Transparent - no background color
 	// Player rendering styles
@@ -493,26 +591,29 @@ type StyledCell struct {
 }
 
 // getStyledCharFromRoomValue converts a room map value to a styled string for rendering
+// Uses a cache to avoid recreating styled strings on every frame
 func getStyledCharFromRoomValue(value string) string {
-	switch value {
-	case "r": // room wall
-		return roomStyle
-	case "o": // outer wall
-		return wallStyle
-	case "i": // inaccessible
-		return inaccessibleStyle
-	case "e": // entrance
-		return entranceStyle
-	case "b": // background/outside (marked by map-fill utility)
-		return backgroundOutsideStyle
-	case "B": // internal inaccessible (dark grey)
-		return backgroundBStyle
-	case " ": // walkable space
-		return backgroundStyle
-	default:
-		// Any other character - use beige background
-		return backgroundStyle
+	// Initialize cache if not already done
+	initStyledCache()
+
+	// Check cache first
+	if cached, ok := styledCache[value]; ok {
+		return cached
 	}
+
+	// Not in cache - create and cache it
+	var styled string
+	// Check if it's a room number (numeric string)
+	if _, err := strconv.Atoi(value); err == nil {
+		// It's a room number - render as darker neutral grey
+		styled = lipgloss.NewStyle().Background(lipgloss.Color("#9ca3af")).Render(" ")
+	} else {
+		// Any other character - use beige background
+		styled = backgroundStyle
+	}
+
+	styledCache[value] = styled
+	return styled
 }
 
 // getBackgroundColorFromRoomValue returns the background color for a given room map value
@@ -530,9 +631,22 @@ func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
 		return lipgloss.Color("#000000") // Black
 	case "B": // internal inaccessible
 		return lipgloss.Color("#2a2a2a") // Dark grey
-	case " ": // walkable space
+	case "T": // television
+		return lipgloss.Color("#000000") // Black
+	case "t": // table
+		return lipgloss.Color("#A0826D") // Between beige and brown
+	case "W": // whiteboard
+		return lipgloss.Color("#FFFFFF") // White
+	case " ": // walkable space (hallways)
+		return lipgloss.Color("#D2B48C") // Beige
+	case "-1": // outside/hallway
 		return lipgloss.Color("#D2B48C") // Beige
 	default:
+		// Check if it's a room number (numeric string)
+		if _, err := strconv.Atoi(value); err == nil {
+			// It's a room number - render as darker neutral grey
+			return lipgloss.Color("#9ca3af")
+		}
 		// Any other character - use beige
 		return lipgloss.Color("#D2B48C") // Default beige
 	}
@@ -568,16 +682,39 @@ func fillRoomMap() ([250][400]string, error) {
 		}
 	}
 
-	// Simply copy all characters from the map file directly
-	// No flood fill needed - the map file already has everything marked correctly
+	// Copy all non-space characters (walls, inaccessible areas, furniture, etc.)
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
 			char := mapChars[i][j]
-			// Convert characters to their string representation
-			if char == ' ' {
-				result[i][j] = " " // Walkable space
-			} else {
-				result[i][j] = string(char) // r, o, i, e, b, or any other character
+			// Mark wall characters and furniture as themselves
+			if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'W' {
+				result[i][j] = string(char)
+			}
+			// Leave spaces as "" for now - they'll be filled by flood fill
+		}
+	}
+
+	// Step 1: Mark outside spaces (not enclosed by walls) as "-1"
+	// Start from top-left corner (0,0) which should be outside any rooms
+	markOutsideSpaces(&result, &mapChars, 0, 0)
+
+	// Step 2: Flood fill each room using the predefined room coordinates
+	for _, room := range roomCoordinates {
+		// Check if this coordinate is valid and unmarked
+		if room.Y >= 0 && room.Y < 250 && room.X >= 0 && room.X < 400 {
+			if result[room.Y][room.X] == "" && mapChars[room.Y][room.X] == ' ' {
+				// Flood fill this room with its name
+				floodFillRoom(&result, &mapChars, room.Y, room.X, room.Name)
+			}
+		}
+	}
+
+	// Step 3: Mark any remaining unmarked spaces as hallways ("-1")
+	// These are spaces that aren't in defined rooms
+	for i := 0; i < 250; i++ {
+		for j := 0; j < 400; j++ {
+			if result[i][j] == "" && mapChars[i][j] == ' ' {
+				result[i][j] = "-1" // Hallway
 			}
 		}
 	}
@@ -690,9 +827,25 @@ func (m Model) renderGamePanel(width, height int) string {
 		Align(lipgloss.Center).
 		Render("Morgridge Hall")
 
+	// Get current room number (if any) using existing function
+	roomNum := m.getCurrentPlayerRoom()
+	var roomLabel string
+	if roomNum != "" {
+		roomLabel = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFD700")). // Gold color for room name
+			Width(width).
+			Align(lipgloss.Center).
+			Render("Room " + roomNum)
+	}
+
 	// Calculate actual viewport dimensions (accounting for borders and padding)
 	viewportWidth := width - 4
 	viewportHeight := height - 2
+
+	// Adjust viewport height if we're showing a room label
+	if roomLabel != "" {
+		viewportHeight -= 1 // Make room for the label
+	}
 
 	// Use the capped GameWorldWidth/Height instead of the full viewport dimensions
 	// This ensures the game grid is rendered at the capped size
@@ -716,6 +869,16 @@ func (m Model) renderGamePanel(width, height int) string {
 		lipgloss.Center,
 		gameGrid,
 	)
+
+	// Join title, room label (if present), and grid
+	if roomLabel != "" {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			gameTitle,
+			roomLabel,
+			centeredGrid,
+		)
+	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -890,6 +1053,44 @@ func (m *Model) isPlayerInSpecificRoom(roomNum int) bool {
 		return false
 	}
 	return roomNumFromStr == roomNum
+}
+
+// countPlayersInRoom returns the number of players currently in a specific room
+func (m *Model) countPlayersInRoom(roomNumber string) int {
+	if m.connMgr == nil {
+		return 0
+	}
+
+	gameState := m.connMgr.GetState()
+	if gameState == nil {
+		return 0
+	}
+
+	count := 0
+	roomData, err := getRoomMap()
+	if err != nil {
+		return 0
+	}
+
+	// Iterate through all players and check their positions
+	for _, player := range gameState.Players {
+		if player.Pos == "" {
+			continue
+		}
+
+		x, y := parsePosition(player.Pos)
+		if y < 0 || y >= 250 || x < 0 || x >= 400 {
+			continue
+		}
+
+		// Check if this player is in the specified room
+		value := roomData[y][x]
+		if value == roomNumber {
+			count++
+		}
+	}
+
+	return count
 }
 
 // renderPlayerToOverlay renders a single player to the overlay grid
@@ -1126,12 +1327,21 @@ func (m Model) renderChatBox(width, height int) string {
 	// Determine mode indicator
 	var modeIndicator string
 	if m.chatMode == ChatModeGlobal {
-		modeIndicator = highlightStyle.Render("[GLOBAL]") + mutedStyle.Render(" Press 'p' for private chat")
+		modeIndicator = highlightStyle.Render("[GLOBAL]") + mutedStyle.Render(" Press 'p' for private, 'o' for room")
 	} else if m.chatMode == ChatModePrivate {
 		if m.chatTarget != "" {
 			modeIndicator = highlightStyle.Render("[PRIVATE: "+m.chatTarget+"]") + mutedStyle.Render(" Press 'g' for global")
 		} else {
 			modeIndicator = mutedStyle.Render("Press 'p' to select a player")
+		}
+	} else if m.chatMode == ChatModeRoom {
+		roomNum := m.getCurrentPlayerRoom()
+		if roomNum != "" {
+			// Count players in the room
+			playerCount := m.countPlayersInRoom(roomNum)
+			modeIndicator = highlightStyle.Render(fmt.Sprintf("[ROOM %s (%d players)]", roomNum, playerCount)) + mutedStyle.Render(" Press 'g' for global")
+		} else {
+			modeIndicator = mutedStyle.Render("[ROOM CHAT - Not in a room]") + mutedStyle.Render(" Press 'g' for global")
 		}
 	}
 
@@ -1186,6 +1396,17 @@ func (m Model) renderChatBox(width, height int) string {
 			} else {
 				messages = []string{} // No target selected, show nothing
 			}
+		} else if m.chatMode == ChatModeRoom {
+			// Show room chat history for current room
+			roomNum := m.getCurrentPlayerRoom()
+			if roomNum != "" {
+				messages = m.roomChatMessages[roomNum]
+				if messages == nil {
+					messages = []string{} // Initialize empty slice if no history yet
+				}
+			} else {
+				messages = []string{mutedStyle.Render("You must be in a room to use room chat")}
+			}
 		}
 
 		// Show most recent messages
@@ -1201,6 +1422,8 @@ func (m Model) renderChatBox(width, height int) string {
 		// If no messages, show placeholder
 		if len(messageLines) == 0 {
 			if m.chatMode == ChatModeGlobal {
+				messageLines = append(messageLines, mutedStyle.Render("No messages yet. Press 't' to type."))
+			} else if m.chatMode == ChatModeRoom {
 				messageLines = append(messageLines, mutedStyle.Render("No messages yet. Press 't' to type."))
 			} else if m.chatTarget != "" {
 				messageLines = append(messageLines, mutedStyle.Render("No messages with "+m.chatTarget+". Press 't' to type."))

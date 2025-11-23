@@ -65,3 +65,19 @@ type PrivateChatMessageEvent struct {
 }
 
 func (PrivateChatMessageEvent) isEvent() {}
+
+// RoomChatMessagesEvent is sent when room chat messages are received
+type RoomChatMessagesEvent struct {
+	RoomNumber string
+	Messages   []RoomChatMessage
+}
+
+func (RoomChatMessagesEvent) isEvent() {}
+
+// RoomChatMessage represents a single room chat message
+type RoomChatMessage struct {
+	RoomNumber string
+	Username   string
+	Message    string
+	Timestamp  int64
+}

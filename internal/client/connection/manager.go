@@ -138,6 +138,16 @@ func (m *Manager) SendChatMessage(fromPlayerID, toPlayerID, message string) erro
 	})
 }
 
+// SendRoomChat sends a chat message to a specific room
+func (m *Manager) SendRoomChat(userName, roomNumber, message string) error {
+	return m.sendMessage(protocol.MsgRoomChat, protocol.RoomChatPayload{
+		RoomNumber: roomNumber,
+		Username:   userName,
+		Message:    message,
+		Timestamp:  time.Now().Unix(),
+	})
+}
+
 // ProcessChatInput handles raw input from the chat box.
 // It detects commands (like /answer) and routes them appropriately,
 // otherwise sends a global chat message.
@@ -297,6 +307,25 @@ func (m *Manager) handleMessage(data []byte) {
 			m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
 		}
 
+		// Send room chat messages events
+		if len(payload.RoomChatMessages) > 0 {
+			for roomNumber, roomMsgs := range payload.RoomChatMessages {
+				messages := make([]RoomChatMessage, len(roomMsgs))
+				for i, msg := range roomMsgs {
+					messages[i] = RoomChatMessage{
+						RoomNumber: msg.RoomNumber,
+						Username:   msg.Username,
+						Message:    msg.Message,
+						Timestamp:  msg.Timestamp,
+					}
+				}
+				m.sendEvent(RoomChatMessagesEvent{
+					RoomNumber: roomNumber,
+					Messages:   messages,
+				})
+			}
+		}
+
 		// Update treasure hunt state
 		// If payload has data, update our cache
 		if payload.TreasureHuntState.ClueText != "" || payload.TreasureHuntState.Completed {
@@ -332,6 +361,29 @@ func (m *Manager) handleMessage(data []byte) {
 
 		m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
 		// log.Printf("Received %d global chat messages", len(messages))
+
+	case protocol.MsgRoomChatMessages:
+		var payload protocol.RoomChatMessagesPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling room chat messages: %v", err)
+			return
+		}
+
+		// Convert protocol messages to event messages
+		messages := make([]RoomChatMessage, len(payload.Messages))
+		for i, msg := range payload.Messages {
+			messages[i] = RoomChatMessage{
+				RoomNumber: msg.RoomNumber,
+				Username:   msg.Username,
+				Message:    msg.Message,
+				Timestamp:  msg.Timestamp,
+			}
+		}
+
+		m.sendEvent(RoomChatMessagesEvent{
+			RoomNumber: payload.RoomNumber,
+			Messages:   messages,
+		})
 
 	case protocol.MsgTreasureHuntState:
 		// Treasure hunt state update, dispatches events to UI

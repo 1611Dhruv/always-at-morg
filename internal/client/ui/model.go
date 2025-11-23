@@ -21,6 +21,7 @@ type ChatMode int
 const (
 	ChatModeGlobal ChatMode = iota
 	ChatModePrivate
+	ChatModeRoom
 )
 
 // Model is the main Bubble Tea model
@@ -55,6 +56,7 @@ type Model struct {
 	announcements      []string            // Server-wide announcements
 	globalChatMessages []string            // Global chat messages
 	privateChatHistory map[string][]string // Private chat messages per user (key: username)
+	roomChatMessages   map[string][]string // Room chat messages per room (key: room number)
 	chatInput          string              // Current chat input
 	chatInputActive    bool                // True when typing in chat
 
@@ -96,9 +98,10 @@ func NewModel(serverURL string) Model {
 		announcements:      []string{"Welcome to Always at Morg!"},
 		globalChatMessages: []string{},
 		privateChatHistory: make(map[string][]string),
+		roomChatMessages:   make(map[string][]string),
 		chatInput:          "",
 		chatInputActive:    false,
-		currentClue:      "Loading clue...",
+		currentClue:        "Loading clue...",
 	}
 }
 
@@ -278,6 +281,16 @@ func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd
 			// Format: [Username] Message
 			formattedMsg := highlightStyle.Render("["+msg.Username+"]") + " " + msg.Message
 			m.globalChatMessages = append(m.globalChatMessages, formattedMsg)
+		}
+		return m, listenForEventsCmd(m.connMgr, m.eventChan)
+
+	case connection.RoomChatMessagesEvent:
+		// Receive all room chat messages for a specific room (replace, don't append)
+		m.roomChatMessages[e.RoomNumber] = make([]string, 0, len(e.Messages))
+		for _, msg := range e.Messages {
+			// Format: [Username] Message
+			formattedMsg := highlightStyle.Render("["+msg.Username+"]") + " " + msg.Message
+			m.roomChatMessages[e.RoomNumber] = append(m.roomChatMessages[e.RoomNumber], formattedMsg)
 		}
 		return m, listenForEventsCmd(m.connMgr, m.eventChan)
 

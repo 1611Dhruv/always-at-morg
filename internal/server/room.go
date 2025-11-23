@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log" //logs messages
 	"math/rand"
+	"strconv"
 	"sync"
 	"time"
 
@@ -215,6 +216,7 @@ func (r *Room) update(chatManager *ChatManager) {
 	}
 
 	chatMessages := chatManager.GetGlobalMessages(r)
+	roomChatMessages := chatManager.GetAllRoomMessages(r)
 
 	// Build players map (keyed by username for easy client lookup)
 	r.mu.RLock()
@@ -236,6 +238,7 @@ func (r *Room) update(chatManager *ChatManager) {
 			PosToUsername: r.GameState.PosToUsername,
 		},
 		ChatMessages:      chatMessages.Messages,
+		RoomChatMessages:  roomChatMessages,
 		Announcements:     announcementPayloads,
 		Players:           players,
 		TreasureHuntState: Manager.GetState(), // Broadcast treasure hunt state to all clients
@@ -264,7 +267,7 @@ func (r *Room) isWalkable(x, y int) bool {
 // canAvatarFitAt checks if a 3x3 avatar can fit at the given position
 // The avatar occupies a 3x3 grid centered on (x, y)
 func (r *Room) canAvatarFitAt(x, y int) bool {
-	// Check all 9 tiles in the 3x3 footprint - all must be ' ' (space)
+	// Check all 9 tiles in the 3x3 footprint - must be walkable
 	for dy := -1; dy <= 1; dy++ {
 		for dx := -1; dx <= 1; dx++ {
 			checkX := x + dx
@@ -275,15 +278,23 @@ func (r *Room) canAvatarFitAt(x, y int) bool {
 				return false // Out of bounds
 			}
 
-			// Check if tile is exactly ' ' (space character)
+			// Check if tile is walkable: ' ' (hallway), 'e' (entrance), "-1" (outside), or room numbers ("1", "2", etc.)
 			value := r.GameState.Map[checkY][checkX]
-			if value != " " && value != "e" {
-				return false // Not a walkable space
+			if value == " " || value == "e" || value == "-1" {
+				// Explicitly walkable
+				continue
 			}
+			// Check if it's a room number (numeric string)
+			if _, err := strconv.Atoi(value); err == nil {
+				// It's a room number - walkable
+				continue
+			}
+			// Not walkable (walls, inaccessible areas, furniture T/t/W, etc.)
+			return false
 		}
 	}
 
-	return true // All tiles in 3x3 grid are walkable spaces
+	return true // All tiles in 3x3 grid are walkable
 }
 
 // UpdatePlayerPosition updates a player's position
@@ -316,6 +327,9 @@ func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 			// Update client position
 			client.Pos = newPos
 
+			// Update current room number based on new position
+			client.CurrentRoomNumber = r.getRoomNumberFromPosition(x, y)
+
 			// Update new position in PosToUsername map
 			r.GameState.PosToUsername[newPos] = username
 
@@ -328,6 +342,25 @@ func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 			return
 		}
 	}
+}
+
+// getRoomNumberFromPosition determines which room a position is in
+// Returns room number as string ("1", "2", etc.) or "" if in hallway
+func (r *Room) getRoomNumberFromPosition(x, y int) string {
+	// Check bounds
+	if y < 0 || y >= 250 || x < 0 || x >= 400 {
+		return ""
+	}
+
+	// Get the map value at this position
+	value := r.GameState.Map[y][x]
+
+	// Check if it's a room number (numeric string)
+	if _, err := strconv.Atoi(value); err == nil {
+		return value
+	}
+
+	return ""
 }
 
 // RoomManager manages all game rooms

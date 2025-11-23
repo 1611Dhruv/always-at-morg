@@ -23,6 +23,7 @@ type ChatManager struct {
 	// Message storage
 	globalMessages []ChatMessage            // Global chat history
 	dmMessages     map[string][]ChatMessage // key: "playerID1:playerID2" (sorted) -> messages
+	roomMessages   map[string][]ChatMessage // key: room number -> messages
 	announcements  []ChatMessage            // Announcement history
 	mu             sync.RWMutex
 }
@@ -32,6 +33,7 @@ func NewChatManager() *ChatManager {
 	return &ChatManager{
 		globalMessages: make([]ChatMessage, 0),
 		dmMessages:     make(map[string][]ChatMessage),
+		roomMessages:   make(map[string][]ChatMessage),
 		announcements:  make([]ChatMessage, 0),
 	}
 }
@@ -201,6 +203,133 @@ func (cm *ChatManager) GetAnnouncements() []ChatMessage {
 	messages := make([]ChatMessage, len(cm.announcements))
 	copy(messages, cm.announcements)
 	return messages
+}
+
+// HandleRoomChat stores and broadcasts a room chat message
+func (cm *ChatManager) HandleRoomChat(client *Client, roomNumber string, message string, room *Room) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	// Store the new message
+	chatMsg := ChatMessage{
+		ID:           uuid.New().String(),
+		FromPlayerID: client.ID,
+		ToPlayerID:   roomNumber, // Store room number in ToPlayerID field
+		Message:      message,
+		Timestamp:    time.Now().Unix(),
+		Type:         "room",
+	}
+
+	// Initialize room message array if it doesn't exist
+	if cm.roomMessages[roomNumber] == nil {
+		cm.roomMessages[roomNumber] = make([]ChatMessage, 0)
+	}
+	cm.roomMessages[roomNumber] = append(cm.roomMessages[roomNumber], chatMsg)
+
+	// Build payload with all room chat messages for this room
+	messages := make([]protocol.RoomChatPayload, len(cm.roomMessages[roomNumber]))
+	for i, msg := range cm.roomMessages[roomNumber] {
+		// Get username from client ID
+		username := ""
+		room.mu.RLock()
+		if c, ok := room.Clients[msg.FromPlayerID]; ok {
+			username = c.Name
+		}
+		room.mu.RUnlock()
+
+		messages[i] = protocol.RoomChatPayload{
+			RoomNumber: roomNumber,
+			Username:   username,
+			Message:    msg.Message,
+			Timestamp:  msg.Timestamp,
+		}
+	}
+
+	payload := protocol.RoomChatMessagesPayload{
+		RoomNumber: roomNumber,
+		Messages:   messages,
+	}
+
+	// Broadcast to all clients in the same room
+	room.mu.RLock()
+	for _, c := range room.Clients {
+		// Only send to clients in the same room
+		if c.CurrentRoomNumber == roomNumber {
+			msg, _ := protocol.EncodeMessage(protocol.MsgRoomChatMessages, payload)
+			c.send <- msg
+		}
+	}
+	room.mu.RUnlock()
+}
+
+// GetRoomMessages returns all chat messages for a specific room
+func (cm *ChatManager) GetRoomMessages(roomNumber string, room *Room) protocol.RoomChatMessagesPayload {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	// Get messages for this room
+	roomMsgs := cm.roomMessages[roomNumber]
+	if roomMsgs == nil {
+		return protocol.RoomChatMessagesPayload{
+			RoomNumber: roomNumber,
+			Messages:   []protocol.RoomChatPayload{},
+		}
+	}
+
+	// Convert to protocol format
+	messages := make([]protocol.RoomChatPayload, len(roomMsgs))
+	for i, msg := range roomMsgs {
+		// Get username from client ID
+		username := ""
+		room.mu.RLock()
+		if c, ok := room.Clients[msg.FromPlayerID]; ok {
+			username = c.Name
+		}
+		room.mu.RUnlock()
+
+		messages[i] = protocol.RoomChatPayload{
+			RoomNumber: roomNumber,
+			Username:   username,
+			Message:    msg.Message,
+			Timestamp:  msg.Timestamp,
+		}
+	}
+
+	return protocol.RoomChatMessagesPayload{
+		RoomNumber: roomNumber,
+		Messages:   messages,
+	}
+}
+
+// GetAllRoomMessages returns all room chat messages for all rooms
+func (cm *ChatManager) GetAllRoomMessages(room *Room) map[string][]protocol.RoomChatPayload {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	result := make(map[string][]protocol.RoomChatPayload)
+
+	for roomNumber, roomMsgs := range cm.roomMessages {
+		messages := make([]protocol.RoomChatPayload, len(roomMsgs))
+		for i, msg := range roomMsgs {
+			// Get username from client ID
+			username := ""
+			room.mu.RLock()
+			if c, ok := room.Clients[msg.FromPlayerID]; ok {
+				username = c.Name
+			}
+			room.mu.RUnlock()
+
+			messages[i] = protocol.RoomChatPayload{
+				RoomNumber: roomNumber,
+				Username:   username,
+				Message:    msg.Message,
+				Timestamp:  msg.Timestamp,
+			}
+		}
+		result[roomNumber] = messages
+	}
+
+	return result
 }
 
 // Helper function to generate consistent DM keys

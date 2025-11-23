@@ -28,16 +28,17 @@ var upgrader = websocket.Upgrader{ //upgrade HTTP connections to WebSocket conne
 
 // Client represents a WebSocket client
 type Client struct {
-	ID       string
-	Name     string
-	Room     *Room
-	conn     *websocket.Conn
-	send     chan []byte
-	Username string
-	Avatar   []int
-	inGame   bool
-	Pos      string
-	
+	ID               string
+	Name             string
+	Room             *Room
+	conn             *websocket.Conn
+	send             chan []byte
+	Username         string
+	Avatar           []int
+	inGame           bool
+	Pos              string
+	CurrentRoomNumber string // Current room the player is in ("1", "2", etc.) or "" if in hallway
+
 	// Treasure Hunt Progress
 	TreasureHuntStep int
 }
@@ -266,6 +267,22 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 
 		// Handle global chat through ChatManager
 		s.chatManager.HandleGlobalChat(c, payload.Message, c.Room)
+
+	case protocol.MsgRoomChat:
+		var payload protocol.RoomChatPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling room chat payload: %v", err)
+			return
+		}
+
+		// Validate client is in the room they claim
+		if c.CurrentRoomNumber != payload.RoomNumber {
+			log.Printf("Client %s tried to send to room %s but is in room %s", c.Name, payload.RoomNumber, c.CurrentRoomNumber)
+			return
+		}
+
+		// Handle room chat through ChatManager
+		s.chatManager.HandleRoomChat(c, payload.RoomNumber, payload.Message, c.Room)
 
 	case protocol.MsgAnnouncement:
 		var payload protocol.AnnouncementPayload
