@@ -13,24 +13,15 @@ import (
 )
 
 var (
-	gameWorld   [250][400]string
 	roomMap     [250][400]string
-	gameMapOnce sync.Once
-	gameMapErr  error
+	roomMapOnce sync.Once
 	roomMapErr  error
 )
 
-func getGameWorld() ([500][500]string, error) {
-	gameMapOnce.Do(func() {
-		gameWorld, gameMapErr = fillGameMap()
+func getRoomMap() ([250][400]string, error) {
+	roomMapOnce.Do(func() {
 		roomMap, roomMapErr = fillRoomMap()
 	})
-	return gameWorld, gameMapErr
-}
-
-func getRoomMap() ([250][400]string, error) {
-	// Ensure maps are loaded
-	_, _ = getGameWorld()
 	return roomMap, roomMapErr
 }
 
@@ -54,12 +45,14 @@ func isWalkable(x, y int) bool {
 	}
 
 	// Check bounds
-	if y < 0 || y >= 500 || x < 0 || x >= 500 {
+	if y < 0 || y >= 250 || x < 0 || x >= 400 {
 		return false
 	}
 
-	// -1 means wall, anything else is walkable
-	return roomMap[y][x] != -1
+	// Wall characters ("r", "o", "i") are not walkable
+	// "e" (entrances), "-1" (hallways), and room numbers ("1", "2", "3", ...) are walkable
+	value := roomMap[y][x]
+	return value != "r" && value != "o" && value != "i"
 }
 
 // hasPlayerNearby checks if there's a player within 4 tiles (Chebyshev distance)
@@ -269,6 +262,10 @@ func (m *Model) handleMovement(dx, dy int) {
 
 // viewMainGame renders the split-screen main game view
 func (m Model) viewMainGame() string {
+	// Repopulate grids to ensure viewport is current (player may have moved)
+	mPtr := &m
+	mPtr.populateGrids()
+
 	// Calculate dimensions (70% game, 30% chat)
 	gameWidth := int(float64(m.width) * 0.7)
 	chatWidth := m.width - gameWidth - 10 // Account for borders and margins
@@ -367,62 +364,28 @@ type StyledCell struct {
 	HasContent   bool
 }
 
-// fillGameMap loads the map file and returns a 2D array of styled strings
-func fillGameMap() ([500][500]string, error) {
-	data, err := os.ReadFile("internal/client/game_assets/map.txt")
-	if err != nil {
-		return [500][500]string{}, fmt.Errorf("failed to load map.txt: %w", err)
-	}
-
-	lines := strings.Split(string(data), "\n")
-	var result [500][500]string
-
-	for i := range result {
-		for j := range result[i] {
-			result[i][j] = transparentStyle
+// getStyledCharFromRoomValue converts a room map value to a styled string for rendering
+func getStyledCharFromRoomValue(value string) string {
+	switch value {
+	case "r": // room wall
+		return roomStyle
+	case "o": // outer wall
+		return wallStyle
+	case "i": // inaccessible
+		return inaccessibleStyle
+	case "e": // entrance
+		return entranceStyle
+	case "-1": // non-room space (hallway)
+		return backgroundStyle
+	default:
+		// Room number or empty space - check if it's a numeric room number
+		if value != "" {
+			// It's a room number, use background style
+			return backgroundStyle
 		}
+		// Empty/uninitialized, use transparent
+		return transparentStyle
 	}
-
-	// Fill in the map data
-	for i, line := range lines {
-		if i >= 250 { // Safety check for rows
-			break
-		}
-
-		line = strings.TrimRight(line, " \t\r")
-		wallFound := false
-		for j, char := range line {
-			if j >= 400 { // Safety check for columns
-				break
-			}
-
-			// Check if current character is a wall/room/inaccessible/entrance
-			if char == 'o' || char == 'i' || char == 'r' || char == 'e' {
-				wallFound = true
-			}
-
-			var styledChar string
-			if !wallFound {
-				styledChar = transparentStyle
-			} else {
-				switch char {
-				case 'o': // outer wall - solid dark brown
-					styledChar = wallStyle
-				case 'i': // inaccessible - solid dark gray
-					styledChar = inaccessibleStyle
-				case 'r': // room - solid dark gray
-					styledChar = roomStyle
-				case 'e': // entrance - lighter room border
-					styledChar = entranceStyle
-				default: // space or other characters - preserve as-is
-					styledChar = backgroundStyle
-				}
-			}
-			result[i][j] = styledChar
-		}
-	}
-
-	return result, nil
 }
 
 // fillRoomMap fills the room map with string annotations.
@@ -439,8 +402,8 @@ func fillRoomMap() ([250][400]string, error) {
 	var mapChars [250][400]rune
 
 	// Initialize all cells and read map characters
-	for i, line := range lines {
-		if i >= 500 {
+		for i, line := range lines {
+		if i >= 250 {
 			break
 		}
 		line = strings.TrimRight(line, " \t\r")
@@ -658,59 +621,43 @@ func (m *Model) calculateViewport() (cameraX, cameraY int) {
 	cameraX = playerX - (m.GameWorldWidth / 2)
 	cameraY = playerY - (m.GameWorldHeight / 2)
 
-	// Clamp to world bounds [0, 500) x [0, 500)
+	// Clamp to world bounds [0, 400) x [0, 250)
 	if cameraX < 0 {
 		cameraX = 0
 	}
-	if cameraX+m.GameWorldWidth > 500 {
-		cameraX = 500 - m.GameWorldWidth
+	if cameraX+m.GameWorldWidth > 400 {
+		cameraX = 400 - m.GameWorldWidth
 	}
 
 	if cameraY < 0 {
 		cameraY = 0
 	}
-	if cameraY+m.GameWorldHeight > 500 {
-		cameraY = 500 - m.GameWorldHeight
+	if cameraY+m.GameWorldHeight > 250 {
+		cameraY = 250 - m.GameWorldHeight
 	}
 
 	return cameraX, cameraY
 }
 
-// populateGrids fills GameWorldGrid and RoomsGrid from the loaded game world and room map
+// populateGrids fills GameWorldGrid from the room map (consolidated - only room map is used)
 func (m *Model) populateGrids() {
-	gameWorldData, err := getGameWorld()
-	if err != nil {
-		// If error, initialize empty grids
-		m.GameWorldGrid = make([][]string, m.GameWorldHeight)
-		m.RoomsGrid = make([][]string, m.GameWorldHeight)
-		for i := range m.GameWorldGrid {
-			m.GameWorldGrid[i] = make([]string, m.GameWorldWidth)
-			m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
-		}
-		return
-	}
-
 	roomData, err := getRoomMap()
 	if err != nil {
-		// If error, initialize empty grids
+		// If error, initialize empty grid
 		m.GameWorldGrid = make([][]string, m.GameWorldHeight)
-		m.RoomsGrid = make([][]string, m.GameWorldHeight)
 		for i := range m.GameWorldGrid {
 			m.GameWorldGrid[i] = make([]string, m.GameWorldWidth)
-			m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
 		}
 		return
 	}
 
-	// Initialize grids
+	// Initialize grid
 	m.GameWorldGrid = make([][]string, m.GameWorldHeight)
-	m.RoomsGrid = make([][]string, m.GameWorldHeight)
 	for i := range m.GameWorldGrid {
 		m.GameWorldGrid[i] = make([]string, m.GameWorldWidth)
-		m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
 	}
 
-	// Populate from game world and room map (viewport centered on player)
+	// Populate from room map (viewport centered on player)
 	cameraX, cameraY := m.calculateViewport()
 
 	// If camera is at -1, -1, show blank/loading state (player not spawned yet)
@@ -719,7 +666,6 @@ func (m *Model) populateGrids() {
 		for y := 0; y < m.GameWorldHeight; y++ {
 			for x := 0; x < m.GameWorldWidth; x++ {
 				m.GameWorldGrid[y][x] = transparentStyle
-				m.RoomsGrid[y][x] = ""
 			}
 		}
 		return
@@ -728,38 +674,23 @@ func (m *Model) populateGrids() {
 	// Normal viewport rendering with valid camera position
 	for y := 0; y < m.GameWorldHeight; y++ {
 		sourceY := cameraY + y
-		if sourceY < 0 || sourceY >= 500 {
+		if sourceY < 0 || sourceY >= 250 {
 			// Out of bounds, show transparent
 			for x := 0; x < m.GameWorldWidth; x++ {
 				m.GameWorldGrid[y][x] = transparentStyle
-				m.RoomsGrid[y][x] = ""
 			}
 			continue
 		}
 		for x := 0; x < m.GameWorldWidth; x++ {
 			sourceX := cameraX + x
-			if sourceX < 0 || sourceX >= 500 {
+			if sourceX < 0 || sourceX >= 400 {
 				// Out of bounds, show transparent
 				m.GameWorldGrid[y][x] = transparentStyle
-				m.RoomsGrid[y][x] = ""
 				continue
 			}
-			// Fill game world grid
-			m.GameWorldGrid[y][x] = gameWorldData[sourceY][sourceX]
-			// Fill rooms grid with room letter or empty
+			// Render directly from room map value
 			roomValue := roomData[sourceY][sourceX]
-			// Check if it's a room number (numeric string starting from "1")
-			if roomValue != "" && roomValue != "-1" && roomValue != "r" && roomValue != "o" && roomValue != "i" && roomValue != "e" {
-				// It's a room number string, convert to letter
-				if roomNum, err := strconv.Atoi(roomValue); err == nil && roomNum >= 1 {
-					roomLetter := string(rune('A' + (roomNum - 1)))
-					m.RoomsGrid[y][x] = roomLetter
-				} else {
-					m.RoomsGrid[y][x] = ""
-				}
-			} else {
-				m.RoomsGrid[y][x] = ""
-			}
+			m.GameWorldGrid[y][x] = getStyledCharFromRoomValue(roomValue)
 		}
 	}
 }

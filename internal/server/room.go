@@ -88,7 +88,7 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 	for i := 0; i < maxAttempts; i++ {
 		x := rand.Intn(400)
 		y := rand.Intn(250)
-		posStr := fmt.Sprintf("%d:%d", x, y)
+		posStr := fmt.Sprintf("%d:%d", y, x) // Format: "Y:X" to match client expectation
 
 		// Check if center position is "-1" (outside area, not in a room)
 		if r.GameState.Map[y][x] != "-1" {
@@ -249,17 +249,42 @@ func (r *Room) update(chatManager *ChatManager) {
 	r.broadcast <- msg
 }
 
+// isWalkable checks if a position is walkable according to the room map
+func (r *Room) isWalkable(x, y int) bool {
+	// Check bounds
+	if y < 0 || y >= 250 || x < 0 || x >= 400 {
+		return false
+	}
+
+	// Get room map value
+	value := r.GameState.Map[y][x]
+
+	// Wall characters ("r", "o", "i") are not walkable
+	// "e" (entrances), "-1" (hallways), and room numbers ("1", "2", "3", ...) are walkable
+	return value != "r" && value != "o" && value != "i"
+}
+
 // UpdatePlayerPosition updates a player's position
 func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Validate that the new position is walkable
+	if !r.isWalkable(x, y) {
+		// Invalid position (wall or out of bounds), reject movement
+		return
+	}
+
+	// Check if position is already occupied by another player
+	newPos := fmt.Sprintf("%d:%d", y, x) // Format: "Y:X"
+	if existingUser, occupied := r.GameState.PosToUsername[newPos]; occupied && existingUser != username {
+		// Position is occupied by another player, reject movement
+		return
+	}
+
 	// Find the client by username
 	for _, client := range r.Clients {
 		if client.Username == username {
-			// Format position as "Y:X"
-			newPos := fmt.Sprintf("%d:%d", y, x)
-
 			// Update old position in PosToUsername map (remove)
 			oldPos := client.Pos
 			if oldPos != "" {
@@ -271,6 +296,12 @@ func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 
 			// Update new position in PosToUsername map
 			r.GameState.PosToUsername[newPos] = username
+
+			// Update GameState.Players directly so client sees the change on next state update
+			if player, exists := r.GameState.Players[username]; exists {
+				player.Pos = newPos
+				r.GameState.Players[username] = player
+			}
 
 			return
 		}

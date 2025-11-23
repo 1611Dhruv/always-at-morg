@@ -38,8 +38,7 @@ type Model struct {
 
 	GameWorldHeight int        // Height of the game world
 	GameWorldWidth  int        // Width of the game world
-	GameWorldGrid   [][]string // 2D grid representing the game world
-	RoomsGrid       [][]string // 2D grid of RoomCells
+	GameWorldGrid   [][]string // 2D grid representing the game world (rendered from room map)
 
 	// Loading screen
 	loadingDots      int
