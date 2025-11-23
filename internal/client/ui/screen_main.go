@@ -49,7 +49,7 @@ var (
 	roomMap        [250][400]string
 	roomMapOnce    sync.Once
 	roomMapErr     error
-	styledCache    map[string]string // Cache for styled strings to avoid recreating them
+	styledCache    map[string]string
 	styleCacheOnce sync.Once
 )
 
@@ -190,9 +190,9 @@ func canAvatarFitAt(x, y int) bool {
 				return false // Out of bounds
 			}
 
-			// Check if tile is walkable: ' ' (hallway), 'e' (entrance), "-1" (outside), or room numbers ("1", "2", etc.)
+			// Check if tile is walkable: ' ' (hallway), 'e' (entrance), "-1" (outside), '@' (walkable), or room numbers ("1", "2", etc.)
 			value := roomMap[checkY][checkX]
-			if value == " " || value == "e" || value == "-1" {
+			if value == " " || value == "e" || value == "-1" || value == "@" {
 				// Explicitly walkable
 				continue
 			}
@@ -712,10 +712,10 @@ func fillRoomMap() ([250][400]string, error) {
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
 			char := mapChars[i][j]
-			// Mark wall characters and furniture as themselves
-			if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'p' || char == 'W' || char == '@' || char == 'c' {
-				result[i][j] = string(char)
-			}
+		// Mark wall characters and furniture as themselves
+		if char == 'r' || char == 'o' || char == 'i' || char == 'e' || char == 'b' || char == 'B' || char == 'T' || char == 't' || char == 'p' || char == 'W' || char == '@' || char == 'c' {
+			result[i][j] = string(char)
+		}
 			// Leave spaces as "" for now - they'll be filled by flood fill
 		}
 	}
