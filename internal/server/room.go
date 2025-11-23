@@ -9,6 +9,13 @@ import (
 	"github.com/yourusername/always-at-morg/internal/protocol"
 )
 
+var startingPositions = []string{
+	"300:200",
+	"18:150",
+	"18:200",
+	"23:100",
+}
+
 // Room represents a game room/session
 type Room struct {
 	ID          string
@@ -27,9 +34,13 @@ type Room struct {
 // NewRoom creates a new game room
 func NewRoom(id string, chatManager *ChatManager) *Room {
 	return &Room{
-		ID:          id,
-		Clients:     make(map[string]*Client),
-		GameState:   &protocol.GameState{Tick: 0},
+		ID:      id,
+		Clients: make(map[string]*Client),
+		GameState: &protocol.GameState{
+			Tick:          0,
+			Players:       make(map[string]protocol.Player),
+			PosToUsername: make(map[string]string),
+		},
 		chatManager: chatManager,
 
 		broadcast:  make(chan []byte, 256),
@@ -65,9 +76,12 @@ func (r *Room) handleRegister(client *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Assign starting position based on current number of clients
+	client.Pos = startingPositions[len(r.Clients)]
+
 	r.Clients[client.ID] = client
 
-	log.Printf("Player %s joined room %s", client.Name, r.ID)
+	log.Printf("Player %s joined room %s at position %s", client.Name, r.ID, client.Pos)
 
 	// Send room joined message to the new client
 	msg, _ := protocol.EncodeMessage(protocol.MsgRoomJoined, protocol.RoomJoinedPayload{
@@ -128,22 +142,25 @@ func (r *Room) update(chatManager *ChatManager) {
 
 	chatMessages := chatManager.GetGlobalMessages(r)
 
-	// Build players map
+	// Build players map (keyed by username for easy client lookup)
 	r.mu.RLock()
 	players := make(map[string]protocol.Player)
-	for id, client := range r.Clients {
-		players[id] = protocol.Player{
-			ID:       client.ID,
-			Name:     client.Name,
+	for _, client := range r.Clients {
+		players[client.Username] = protocol.Player{
+			Pos:      client.Pos,
+			Avatar:   client.Avatar,
 			Username: client.Username,
-			// Add position and other player data here when available
 		}
 	}
 	r.mu.RUnlock()
 
-	// Create unified state payload
+	// Create unified state payload with current players
 	kuluchifiedState := protocol.KuluchifiedStatePayload{
-		GameState:     *r.GameState,
+		GameState: protocol.GameState{
+			Tick:          r.GameState.Tick,
+			Players:       players, // Use the players map we just built!
+			PosToUsername: r.GameState.PosToUsername,
+		},
 		ChatMessages:  chatMessages.Messages,
 		Announcements: announcementPayloads,
 		Players:       players,

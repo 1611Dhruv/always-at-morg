@@ -3,11 +3,13 @@ package ui
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/yourusername/always-at-morg/internal/protocol"
 )
 
 var (
@@ -32,6 +34,30 @@ func getRoomMap() ([250][400]int, error) {
 	return roomMap, roomMapErr
 }
 
+// parsePosition parses a position string "Y:X" into integer coordinates
+// Server uses format "Y:X" (e.g., "52:200" means Y=52, X=200)
+func parsePosition(pos string) (x, y int) {
+	parts := strings.Split(pos, ":")
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	y, _ = strconv.Atoi(parts[0]) // First part is Y
+	x, _ = strconv.Atoi(parts[1]) // Second part is X
+	return x, y
+}
+
+// createAvatarFromIndices creates an Avatar from protocol avatar indices
+func createAvatarFromIndices(indices []int) Avatar {
+	if len(indices) != 3 {
+		return NewAvatar() // Default avatar if invalid
+	}
+	return Avatar{
+		HeadIndex:  indices[0],
+		TorsoIndex: indices[1],
+		LegsIndex:  indices[2],
+	}
+}
+
 // updateMainGame handles main game screen
 func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle chat input if active
@@ -41,7 +67,7 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Cancel chat input
 			m.chatInputActive = false
 			m.chatInput = ""
-			return m, nil
+			return m, func() tea.Msg { return tea.ClearScreen() }
 
 		case "enter":
 			// Send message
@@ -95,7 +121,7 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Start typing in chat
 		m.chatInputActive = true
 		m.chatInput = ""
-		return m, nil
+		return m, func() tea.Msg { return tea.ClearScreen() }
 
 	case "g", "G":
 		// Switch to global chat
@@ -199,7 +225,29 @@ var (
 
 	transparentStyle = lipgloss.NewStyle().
 				Render(" ") // Transparent - no background color
+	// Player rendering styles
+	currentPlayerUsernameStyle = lipgloss.NewStyle().
+					Foreground(successColor).
+					Background(lipgloss.Color("#3A4A3A")).
+					Bold(true)
+
+	otherPlayerUsernameStyle = lipgloss.NewStyle().
+					Foreground(accentColor).
+					Background(lipgloss.Color("#3A4A3A"))
+
+	currentPlayerAvatarStyle = lipgloss.NewStyle().
+					Foreground(highlightColor).
+					Bold(true)
+
+	otherPlayerAvatarStyle = lipgloss.NewStyle().
+				Foreground(fgColor)
 )
+
+// StyledCell represents a single grid cell with optional player overlay
+type StyledCell struct {
+	StyledString string
+	HasContent   bool
+}
 
 // fillGameMap loads the map file and returns a 2D array of styled strings
 func fillGameMap() ([250][400]string, error) {
@@ -453,6 +501,49 @@ func (m Model) renderGamePanel(width, height int) string {
 	)
 }
 
+// calculateViewport calculates the camera position centered on the current player
+func (m *Model) calculateViewport() (cameraX, cameraY int) {
+	// Get game state
+	if m.connMgr == nil {
+		return 0, 0
+	}
+
+	gameState := m.connMgr.GetState()
+	if gameState == nil {
+		return 0, 0
+	}
+
+	// Get current player
+	currentPlayer, exists := gameState.Players[m.userName]
+	if !exists {
+		return 0, 0
+	}
+
+	// Parse player position
+	playerX, playerY := parsePosition(currentPlayer.Pos)
+
+	// Center camera on player
+	cameraX = playerX - (m.GameWorldWidth / 2)
+	cameraY = playerY - (m.GameWorldHeight / 2)
+
+	// Clamp to world bounds
+	if cameraX < 0 {
+		cameraX = 0
+	}
+	if cameraX+m.GameWorldWidth > 400 {
+		cameraX = 400 - m.GameWorldWidth
+	}
+
+	if cameraY < 0 {
+		cameraY = 0
+	}
+	if cameraY+m.GameWorldHeight > 250 {
+		cameraY = 250 - m.GameWorldHeight
+	}
+
+	return cameraX, cameraY
+}
+
 // populateGrids fills GameWorldGrid and RoomsGrid from the loaded game world and room map
 func (m *Model) populateGrids() {
 	gameWorldData, err := getGameWorld()
@@ -487,9 +578,8 @@ func (m *Model) populateGrids() {
 		m.RoomsGrid[i] = make([]string, m.GameWorldWidth)
 	}
 
-	// Populate from game world and room map (viewport starts at 0,0 for now)
-	cameraY := 0
-	cameraX := 0
+	// Populate from game world and room map (viewport centered on player)
+	cameraX, cameraY := m.calculateViewport()
 	for y := 0; y < m.GameWorldHeight; y++ {
 		sourceY := cameraY + y
 		if sourceY >= 250 {
@@ -514,16 +604,180 @@ func (m *Model) populateGrids() {
 	}
 }
 
-// renderGameWorld creates a grid representation of the game world
+// getCurrentPlayerRoom returns the room number where the current player is located
+// Returns -1 for walls, 2 for hallways, 3+ for rooms
+func (m *Model) getCurrentPlayerRoom() int {
+	if m.connMgr == nil {
+		return -1
+	}
+
+	gameState := m.connMgr.GetState()
+	if gameState == nil {
+		return -1
+	}
+
+	currentPlayer, exists := gameState.Players[m.userName]
+	if !exists {
+		return -1
+	}
+
+	playerX, playerY := parsePosition(currentPlayer.Pos)
+
+	// Bounds check
+	if playerX < 0 || playerX >= 400 || playerY < 0 || playerY >= 250 {
+		return -1
+	}
+
+	// Get room number from roomMap
+	roomData, err := getRoomMap()
+	if err != nil {
+		return -1
+	}
+
+	return roomData[playerY][playerX]
+}
+
+// isPlayerInRoom checks if the player is in any room (room number >= 3)
+func (m *Model) isPlayerInRoom() bool {
+	return m.getCurrentPlayerRoom() >= 3
+}
+
+// isPlayerInSpecificRoom checks if the player is in a specific room number
+func (m *Model) isPlayerInSpecificRoom(roomNum int) bool {
+	return m.getCurrentPlayerRoom() == roomNum
+}
+
+// getRoomLetter converts a room number to a letter (A, B, C...)
+// Returns empty string for non-room numbers
+func getRoomLetter(roomNum int) string {
+	if roomNum < 3 {
+		return ""
+	}
+	return string(rune('A' + (roomNum - 3)))
+}
+
+// renderPlayerToOverlay renders a single player to the overlay grid
+func (m *Model) renderPlayerToOverlay(
+	overlay [][]StyledCell,
+	player protocol.Player,
+	username string,
+	cameraX, cameraY int,
+	isCurrentPlayer bool,
+) {
+	// Parse player world position
+	playerX, playerY := parsePosition(player.Pos)
+
+	// Convert to viewport coordinates
+	vx := playerX - cameraX
+	vy := playerY - cameraY
+
+	// Get avatar and split into lines
+	avatar := createAvatarFromIndices(player.Avatar)
+	avatarLines := strings.Split(avatar.Render(), "\n")
+
+	// Choose styles
+	usernameStyle := otherPlayerUsernameStyle
+	avatarStyle := otherPlayerAvatarStyle
+	if isCurrentPlayer {
+		usernameStyle = currentPlayerUsernameStyle
+		avatarStyle = currentPlayerAvatarStyle
+	}
+
+	// Truncate username to 5 characters
+	displayUsername := username
+	if len(displayUsername) > 5 {
+		displayUsername = displayUsername[:5]
+	}
+
+	// Render username (1 line above avatar)
+	usernameY := vy - 1
+	usernameX := vx - 1 // Center 5-char username above 3-char avatar
+	if usernameY >= 0 && usernameY < len(overlay) {
+		for i, ch := range displayUsername {
+			charX := usernameX + i
+			if charX >= 0 && charX < len(overlay[0]) {
+				overlay[usernameY][charX].StyledString = usernameStyle.Render(string(ch))
+				overlay[usernameY][charX].HasContent = true
+			}
+		}
+	}
+
+	// Render avatar (only torso and legs for top-down view - lines 1 and 2)
+	for line := 1; line < 3 && line < len(avatarLines); line++ {
+		avatarY := vy + (line - 1) // Line 1 -> vy, Line 2 -> vy+1
+		if avatarY < 0 || avatarY >= len(overlay) {
+			continue
+		}
+
+		avatarLine := avatarLines[line]
+		for charIdx := 0; charIdx < len(avatarLine) && charIdx < 3; charIdx++ {
+			avatarX := vx + charIdx
+			if avatarX < 0 || avatarX >= len(overlay[0]) {
+				continue
+			}
+
+			styledChar := avatarStyle.Render(string(avatarLine[charIdx]))
+			overlay[avatarY][avatarX].StyledString = styledChar
+			overlay[avatarY][avatarX].HasContent = true
+		}
+	}
+}
+
+// compositePlayerLayer creates an overlay grid with all players rendered
+func (m *Model) compositePlayerLayer(cameraX, cameraY int) [][]StyledCell {
+	// Create empty overlay grid
+	overlay := make([][]StyledCell, m.GameWorldHeight)
+	for i := range overlay {
+		overlay[i] = make([]StyledCell, m.GameWorldWidth)
+	}
+
+	// Get game state
+	if m.connMgr == nil {
+		return overlay
+	}
+
+	gameState := m.connMgr.GetState()
+	if gameState == nil {
+		return overlay
+	}
+
+	// Render other players first (z-order: back)
+	for username, player := range gameState.Players {
+		if username == m.userName {
+			continue // Skip current player, render last
+		}
+		m.renderPlayerToOverlay(overlay, player, username, cameraX, cameraY, false)
+	}
+
+	// Render current player on top (z-order: front)
+	if currentPlayer, exists := gameState.Players[m.userName]; exists {
+		m.renderPlayerToOverlay(overlay, currentPlayer, m.userName, cameraX, cameraY, true)
+	}
+
+	return overlay
+}
+
+// renderGameWorld creates a grid representation of the game world with players
 func (m Model) renderGameWorld(width, height int) string {
 	var builder strings.Builder
 
-	// Render from GameWorldGrid
+	// Get camera position and player overlay
+	mPtr := &m
+	cameraX, cameraY := mPtr.calculateViewport()
+	playerOverlay := mPtr.compositePlayerLayer(cameraX, cameraY)
+
+	// Render each cell: background + player overlay
 	for y := 0; y < height && y < len(m.GameWorldGrid); y++ {
 		for x := 0; x < width && x < len(m.GameWorldGrid[y]); x++ {
-			if m.GameWorldGrid[y][x] == "" {
+			// Check if there's a player overlay at this position
+			if y < len(playerOverlay) && x < len(playerOverlay[y]) && playerOverlay[y][x].HasContent {
+				// Render player overlay
+				builder.WriteString(playerOverlay[y][x].StyledString)
+			} else if m.GameWorldGrid[y][x] == "" {
+				// Render transparent background
 				builder.WriteString(transparentStyle)
 			} else {
+				// Render background
 				builder.WriteString(m.GameWorldGrid[y][x])
 			}
 		}
@@ -684,7 +938,6 @@ func (m Model) renderChatInputBox(width int) string {
 		Height(1). // Fixed height to prevent shifting
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(mutedColor).
-		Padding(0, 1).
 		Render(inputPrefix + inputText)
 }
 

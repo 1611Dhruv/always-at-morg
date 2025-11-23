@@ -54,21 +54,23 @@ type RoomJoinedPayload struct {
 	GameState *GameState `json:"game_state"`
 }
 
+// type Pos struct {
+// 	X int `json:"x"`
+// 	Y int `json:"y"`
+// }
+
 // GameState represents the current state of the game
 type GameState struct {
-	Tick int64 `json:"tick"`
+	Players       map[string]Player `json:"players"`
+	PosToUsername map[string]string    `json:"pos_to_username"`
+	Tick          int64             `json:"tick"`
 }
 
 // Player represents a player in the game
 type Player struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
 	Username string `json:"username"`
-	X        int    `json:"x"`
-	Y        int    `json:"y"`
-	Color    string `json:"color,omitempty"`
-	Score    int    `json:"score,omitempty"`
-	Avatar   string `json:"avatar,omitempty"`
+	Pos      string    `json:"pos"`
+	Avatar   []int  `json:"avatar"`
 }
 
 // chat request payload for initiating chat interaction
@@ -122,10 +124,10 @@ type GlobalChatMessagesPayload struct {
 
 // KuluchifiedStatePayload is the unified per-tick state update containing everything
 type KuluchifiedStatePayload struct {
-	GameState     GameState            `json:"game_state"`
-	ChatMessages  []GlobalChatPayload  `json:"chat_messages"`
+	GameState     GameState             `json:"game_state"`
+	ChatMessages  []GlobalChatPayload   `json:"chat_messages"`
 	Announcements []AnnouncementPayload `json:"announcements"`
-	Players       map[string]Player    `json:"players"`
+	Players       map[string]Player     `json:"players"`
 }
 
 // EncodeMessage encodes a message with its payload
