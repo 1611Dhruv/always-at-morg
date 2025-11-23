@@ -54,22 +54,22 @@ type RoomJoinedPayload struct {
 	GameState *GameState `json:"game_state"`
 }
 
-type Pos struct {
-	X int `json:"x"`
-	Y int `json:"y"`
-}
+// type Pos struct {
+// 	X int `json:"x"`
+// 	Y int `json:"y"`
+// }
 
 // GameState represents the current state of the game
 type GameState struct {
 	Players       map[string]Player `json:"players"`
-	PosToUsername map[Pos]string    `json:"pos_to_username"`
+	PosToUsername map[string]string    `json:"pos_to_username"`
 	Tick          int64             `json:"tick"`
 }
 
 // Player represents a player in the game
 type Player struct {
 	Username string `json:"username"`
-	Pos      Pos    `json:"pos"`
+	Pos      string    `json:"pos"`
 	Avatar   []int  `json:"avatar"`
 }
 

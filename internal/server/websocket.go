@@ -36,6 +36,7 @@ type Client struct {
 	Username string
 	Avatar   []int
 	inGame   bool
+	Pos      string
 }
 
 // Server represents the WebSocket server
@@ -176,13 +177,13 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		c.Avatar = user.Avatar
 		c.Name = payload.Name
 
+		log.Printf("New user %s onboarded with avatar %v", c.Username, c.Avatar)
+
 		// Auto-join default room
 		room := s.roomManager.GetOrCreateRoom("0")
 		c.Room = room
 		c.inGame = true
 		room.register <- c
-
-		log.Printf("New user %s onboarded with avatar %s", c.Username, c.Avatar)
 
 	case protocol.MsgJoinRoom:
 		var payload protocol.JoinRoomPayload
@@ -211,7 +212,6 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			c.Room = room
 			c.inGame = true
 			room.register <- c
-
 			log.Printf("Returning user %s joined", user.Username)
 			return
 		}
