@@ -1,246 +1,229 @@
-# Always At Morg - Multiplayer Terminal Game
+# Always at Morg - Multiplayer Terminal Game
 
-A real-time multiplayer game built with Go, featuring WebSocket communication between a backend server and terminal-based clients using Bubble Tea and Termloop.
+A real-time multiplayer terminal game connecting UW Madison students. Hang out in virtual Morgridge Hall from anywhere!
 
-## Architecture
+Built with Go (backend/client) and React (website), featuring WebSocket communication and terminal UI using Bubble Tea.
 
-### Backend (Server)
-- WebSocket server using `gorilla/websocket`
-- Room-based game sessions with concurrent player support
-- Real-time game state synchronization
-- Server-side game loop running at 20 ticks per second
+## Quick Start for Players
 
-### Frontend (Client)
-- **Bubble Tea**: Menu navigation and lobby management
-- **Termloop**: Real-time game rendering and controls
-- WebSocket client for server communication
-- State synchronization system
+Install and play in one command:
 
-### Protocol
-- JSON-based message protocol
-- Message types for joining rooms, player movements, game state updates
-- Shared data structures between client and server
+**Unix/Mac/Linux:**
+```bash
+curl -fsSL https://always-at-morg.bid/install.sh | bash
+morg
+```
+
+**Windows PowerShell:**
+```powershell
+iwr -useb https://always-at-morg.bid/install.ps1 | iex
+morg
+```
+
+Visit the website: **https://always-at-morg.bid**
 
 ## Project Structure
 
 ```
-.
-├── cmd/
-│   ├── server/          # Server entry point
-│   │   └── main.go
-│   └── client/          # Client entry point
-│       └── main.go
-├── internal/
-│   ├── server/          # Server implementation
-│   │   ├── websocket.go # WebSocket handling
-│   │   └── room.go      # Room & game state management
-│   ├── client/          # Client implementation
-│   │   ├── websocket.go # WebSocket client
-│   │   ├── bubbletea.go # Bubble Tea UI
-│   │   └── termloop.go  # Termloop game rendering
-│   └── protocol/        # Shared protocol
-│       └── messages.go  # Message types & encoding
-├── go.mod
-└── README.md
+always-at-morg/
+├── cmd/                    # Go application entry points
+│   ├── client/main.go     # Client application
+│   └── server/main.go     # Server application
+├── internal/              # Go internal packages
+│   ├── client/           # Client logic & UI
+│   ├── server/           # Server logic & game state
+│   └── protocol/         # Shared WebSocket protocol
+├── website/              # React website
+│   ├── src/             # React source code
+│   ├── public/          # Static assets + installers
+│   │   ├── install.sh   # Unix/Mac/Linux installer
+│   │   ├── install.ps1  # Windows PowerShell installer
+│   │   └── releases/    # Binary releases (auto-generated)
+│   └── build/           # Production build (generated)
+├── build-releases.sh    # Build binaries for all platforms
+└── install.sh          # Installer script
 ```
 
-## Getting Started
+## For Developers
 
 ### Prerequisites
+- Go 1.21+
+- Node.js 18+ (for website)
 
-- Go 1.21 or later
+### Running Locally
 
-### Installation
-
-1. Clone the repository:
-```bash
-cd always-at-morg
-```
-
-2. Download dependencies:
-```bash
-go mod download
-```
-
-### Running the Server
-
-Start the WebSocket server:
-
+**1. Start the Server:**
 ```bash
 go run cmd/server/main.go
+# Server runs on ws://localhost:8080/ws
 ```
 
-The server will start on `localhost:8080` by default. You can specify a different address:
+**2. Run the Client:**
+```bash
+go build -o client cmd/client/main.go
+./client
+# Auto-connects to ws://always-at-morg.bid:8080/ws by default
+# Or specify custom server: ./client ws://localhost:8080/ws
+```
+
+**3. Run the Website (optional):**
+```bash
+cd website
+npm install
+npm start
+# Visit http://localhost:3000
+```
+
+### Game Controls
+
+- `W A S D` or Arrow Keys - Move around
+- `Enter` - Start chatting
+- `G` - Global chat mode
+- `O` - Room chat mode
+- `P` - Private chat mode
+- `Esc` - Exit chat
+- `Ctrl+C` - Quit game
+
+## Deployment Guide
+
+### 1. Build All Platform Binaries
 
 ```bash
-go run cmd/server/main.go -addr :9000
+./build-releases.sh
 ```
 
-### Running the Client
+This creates binaries in `website/public/releases/`:
+- `always-at-morg-darwin_amd64` (macOS Intel)
+- `always-at-morg-darwin_arm64` (macOS Apple Silicon)
+- `always-at-morg-linux_amd64` (Linux x86_64)
+- `always-at-morg-linux_arm64` (Linux ARM64)
+- `always-at-morg-linux_arm` (Linux ARM)
+- `always-at-morg-windows_amd64.exe` (Windows)
 
-#### Menu Mode (Default)
-
-Start with the interactive menu:
+### 2. Build the Website
 
 ```bash
-go run cmd/client/main.go
+cd website
+npm run build
 ```
 
-Use arrow keys to navigate:
-- Join Room
-- Create Room
-- Quit
+Production build created in `website/build/`
 
-#### Direct Connection Modes
+### 3. Deploy to always-at-morg.bid
 
-Join a specific room directly:
+Upload `website/build/` to your web server:
+
+```
+always-at-morg.bid/
+├── index.html          # React website
+├── install.sh          # Unix installer
+├── install.ps1         # Windows installer
+└── releases/           # Binary downloads
+    ├── always-at-morg-darwin_amd64
+    ├── always-at-morg-darwin_arm64
+    └── ...
+```
+
+### 4. Deploy the Game Server
 
 ```bash
-go run cmd/client/main.go -mode lobby -room my-room -name Player1
+go build -o server cmd/server/main.go
+./server
 ```
 
-Start game directly with Termloop:
+Make accessible at `ws://always-at-morg.bid:8080/ws`
 
-```bash
-go run cmd/client/main.go -mode game -room my-room -name Player1 -termloop
-```
+## How It Works
 
-Start game with Bubble Tea renderer:
+### Installation Flow
 
-```bash
-go run cmd/client/main.go -mode game -room my-room -name Player1
-```
+1. User runs: `curl -fsSL https://always-at-morg.bid/install.sh | bash`
+2. Script detects OS/architecture
+3. Downloads binary from `https://always-at-morg.bid/releases/`
+4. Installs to `~/.local/bin/morg` (Unix) or `%LOCALAPPDATA%\Programs\morg` (Windows)
+5. User runs: `morg`
+6. Client auto-connects to production server
 
-### Client Flags
+### Architecture
 
-- `-server`: WebSocket server URL (default: `ws://localhost:8080/ws`)
-- `-mode`: Start mode - `menu`, `lobby`, or `game` (default: `menu`)
-- `-room`: Room ID to join (default: `default-room`)
-- `-name`: Player name (default: `Player1`)
-- `-termloop`: Use termloop for game rendering (default: false)
+**Backend:**
+- Go WebSocket server (`gorilla/websocket`)
+- Room-based game sessions
+- Real-time state sync at 20 ticks/second
+- Chat system (global, room, private)
+- Treasure hunt mini-game
 
-## Game Controls
+**Client:**
+- Bubble Tea terminal UI
+- WebSocket client
+- Avatar customization (3x3 pixels)
+- Real-time multiplayer rendering
 
-### Bubble Tea Mode
+**Website:**
+- React single-page app
+- Font Awesome icons
+- Minimal, clean design
+- UW Madison theme (#c5050c)
 
-**Menu:**
-- Arrow keys / j,k: Navigate
-- Enter: Select
-- q: Quit
+**Protocol:**
+- JSON-based WebSocket messages
+- Shared types in `internal/protocol/`
+- Kuluchified state updates (unified tick)
 
-**Lobby:**
-- g: Start game
-- b: Back to menu
-- q: Quit
+## Features
 
-**Game:**
-- WASD / Arrow keys: Move
-- b: Back to lobby
-- q: Quit
-
-### Termloop Mode
-
-- Arrow keys: Move player
-- ESC: Exit game
-
-## Development
-
-### Building
-
-Build the server:
-```bash
-go build -o bin/server cmd/server/main.go
-```
-
-Build the client:
-```bash
-go build -o bin/client cmd/client/main.go
-```
-
-### Running Multiple Clients
-
-You can run multiple clients to test multiplayer functionality:
-
-Terminal 1 (Server):
-```bash
-go run cmd/server/main.go
-```
-
-Terminal 2 (Client 1):
-```bash
-go run cmd/client/main.go -mode game -room test-room -name Alice
-```
-
-Terminal 3 (Client 2):
-```bash
-go run cmd/client/main.go -mode game -room test-room -name Bob
-```
+- 🏛️ **Explore Morgridge Hall** - Virtual recreation with multiple rooms
+- 💬 **Chat System** - Global, room, and private messaging
+- 🎮 **Treasure Hunt** - Interactive mini-game
+- 👥 **Multiplayer** - See other players move in real-time
+- 🎨 **Custom Avatars** - Create your 3x3 pixel character
+- ⚡ **Lightning Fast** - Runs entirely in your terminal
 
 ## Protocol Messages
 
-### Client to Server
+### Key Message Types
 
-- `join_room`: Join a game room
-- `leave_room`: Leave current room
-- `player_move`: Send player movement
-- `player_input`: Send custom input action
+**Client → Server:**
+- `join_room` - Join game room
+- `player_move` - Movement update
+- `global_chat_message` - Global chat
+- `room_chat_message` - Room chat
+- `chat_message` - Private message
+- `treasure_hunt_guess` - Submit answer
 
-### Server to Client
+**Server → Client:**
+- `room_joined` - Join confirmation
+- `kuluchified_state` - Unified game state (tick)
+- `global_chat_messages` - Chat history
+- `room_chat_messages` - Room chat history
+- `treasure_hunt_state` - Treasure hunt updates
 
-- `room_joined`: Confirmation of room join with initial state
-- `game_state`: Periodic game state updates
-- `player_joined`: Notification when another player joins
-- `player_left`: Notification when a player leaves
-- `error`: Error messages
+## Tech Stack
 
-## Extending the Game
+- **Backend**: Go 1.21+, gorilla/websocket
+- **Client TUI**: Bubble Tea, Lipgloss
+- **Frontend**: React 18
+- **Icons**: Font Awesome 6
+- **Styling**: Pure CSS3
+- **Tools**: UUID generation, JSON protocol
 
-### Adding Game Logic
+## Contributing
 
-Edit `internal/server/room.go` in the `update()` method to add:
-- Collision detection
-- Collectible items
-- Scoring logic
-- Win conditions
+This is a student project for UW Madison. Feel free to fork and customize!
 
-### Adding Entities
+### Adding Features
 
-Add new entity types in `internal/protocol/messages.go`:
-
-```go
-type Entity struct {
-    ID   string `json:"id"`
-    Type string `json:"type"` // e.g., "coin", "obstacle"
-    X    int    `json:"x"`
-    Y    int    `json:"y"`
-}
-```
-
-Update the rendering in `internal/client/termloop.go` to display new entities.
-
-### Custom Input Actions
-
-Use the `player_input` message type for custom actions:
-
-```go
-client.SendInput("jump", map[string]interface{}{
-    "height": 5,
-})
-```
-
-Handle in `internal/server/websocket.go` in the `handleMessage()` method.
-
-## Dependencies
-
-- [gorilla/websocket](https://github.com/gorilla/websocket) - WebSocket implementation
-- [charmbracelet/bubbletea](https://github.com/charmbracelet/bubbletea) - Terminal UI framework
-- [JoelOtter/termloop](https://github.com/JoelOtter/termloop) - Terminal game engine
-- [google/uuid](https://github.com/google/uuid) - UUID generation
+1. Update protocol: `internal/protocol/messages.go`
+2. Add server logic: `internal/server/`
+3. Add client logic: `internal/client/`
+4. Update UI: `internal/client/ui/`
 
 ## License
 
 MIT
 
-## Contributing
+---
 
-Feel free to submit issues and pull requests!
+Made with ❤️ for **UW Madison** students.
+
+**On, Wisconsin!** 🦡

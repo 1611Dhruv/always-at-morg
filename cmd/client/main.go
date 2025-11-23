@@ -11,9 +11,15 @@ import (
 )
 
 func main() {
-	serverURL := flag.String("server", "ws://localhost:8080/ws", "WebSocket server URL")
+	serverURL := flag.String("server", "ws://web.always-at-mor.big:8080/ws", "WebSocket server URL")
 	screen := flag.String("screen", "", "Screen to display (for testing): loading, username, avatar, game")
 	flag.Parse()
+
+	// Allow positional argument as server URL (for backwards compatibility)
+	if flag.NArg() > 0 {
+		url := flag.Arg(0)
+		serverURL = &url
+	}
 
 	var model ui.Model
 

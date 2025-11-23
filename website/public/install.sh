@@ -2,10 +2,10 @@
 set -e
 
 # Always at Morg - Installation Script
-# Usage: curl -fsSL https://always-at-morg.bid/install.sh | bash
+# Usage: curl -fsSL https://web.always-at-mor.big/install.sh | bash
 
 VERSION="${VERSION:-latest}"
-BASE_URL="https://always-at-morg.bid/releases"
+BASE_URL="https://web.always-at-mor.big/releases"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # Color codes

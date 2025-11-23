@@ -1,5 +1,5 @@
 # Always at Morg - Windows Installation Script
-# Usage: iwr -useb https://always-at-morg.bid/install.ps1 | iex
+# Usage: iwr -useb https://web.always-at-mor.big/install.ps1 | iex
 
 param(
     [string]$InstallDir = "$env:LOCALAPPDATA\Programs\morg"
@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BASE_URL = "https://always-at-morg.bid/releases"
+$BASE_URL = "https://web.always-at-mor.big/releases"
 
 Write-Host "╔═══════════════════════════════════════╗" -ForegroundColor Green
 Write-Host "║    Always at Morg - Installer         ║" -ForegroundColor Green
