@@ -73,6 +73,12 @@ type Player struct {
 	Avatar   []int  `json:"avatar"`
 }
 
+// PlayerMovePayload is sent when a player wants to move
+type PlayerMovePayload struct {
+	NewX int `json:"new_x"`
+	NewY int `json:"new_y"`
+}
+
 // chat request payload for initiating chat interaction
 type ChatReqestPayload struct {
 	FromPlayerID string `json:"from_player_id"`

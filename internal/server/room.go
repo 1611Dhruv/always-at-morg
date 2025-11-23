@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log" //logs messages
 	"sync"
 	"time"
@@ -10,7 +11,7 @@ import (
 )
 
 var startingPositions = []string{
-	"300:200",
+	"120:100",
 	"18:150",
 	"18:200",
 	"23:100",
@@ -172,10 +173,31 @@ func (r *Room) update(chatManager *ChatManager) {
 }
 
 // UpdatePlayerPosition updates a player's position
-func (r *Room) UpdatePlayerPosition(playerID string, x, y int) {
+func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Find the client by username
+	for _, client := range r.Clients {
+		if client.Username == username {
+			// Format position as "Y:X"
+			newPos := fmt.Sprintf("%d:%d", y, x)
+
+			// Update old position in PosToUsername map (remove)
+			oldPos := client.Pos
+			if oldPos != "" {
+				delete(r.GameState.PosToUsername, oldPos)
+			}
+
+			// Update client position
+			client.Pos = newPos
+
+			// Update new position in PosToUsername map
+			r.GameState.PosToUsername[newPos] = username
+
+			return
+		}
+	}
 }
 
 // RoomManager manages all game rooms

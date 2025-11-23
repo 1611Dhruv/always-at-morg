@@ -126,6 +126,14 @@ func (m *Manager) SendGlobalChat(userName, message string) error {
 	})
 }
 
+// SendPlayerMove sends a player move request
+func (m *Manager) SendPlayerMove(newX, newY int) error {
+	return m.sendMessage(protocol.MsgPlayerMove, protocol.PlayerMovePayload{
+		NewX: newX,
+		NewY: newY,
+	})
+}
+
 ////////////////////////////////////////////
 
 // GetState returns the current game state

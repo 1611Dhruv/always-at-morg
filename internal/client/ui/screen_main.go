@@ -13,14 +13,14 @@ import (
 )
 
 var (
-	gameWorld   [250][400]string
-	roomMap     [250][400]int
+	gameWorld   [500][500]string
+	roomMap     [500][500]int
 	gameMapOnce sync.Once
 	gameMapErr  error
 	roomMapErr  error
 )
 
-func getGameWorld() ([250][400]string, error) {
+func getGameWorld() ([500][500]string, error) {
 	gameMapOnce.Do(func() {
 		gameWorld, gameMapErr = fillGameMap()
 		roomMap, roomMapErr = fillRoomMap()
@@ -28,7 +28,7 @@ func getGameWorld() ([250][400]string, error) {
 	return gameWorld, gameMapErr
 }
 
-func getRoomMap() ([250][400]int, error) {
+func getRoomMap() ([500][500]int, error) {
 	// Ensure maps are loaded
 	_, _ = getGameWorld()
 	return roomMap, roomMapErr
@@ -44,6 +44,89 @@ func parsePosition(pos string) (x, y int) {
 	y, _ = strconv.Atoi(parts[0]) // First part is Y
 	x, _ = strconv.Atoi(parts[1]) // Second part is X
 	return x, y
+}
+
+// isWalkable checks if a position is walkable (not a wall)
+func isWalkable(x, y int) bool {
+	roomMap, err := getRoomMap()
+	if err != nil {
+		return false
+	}
+
+	// Check bounds
+	if y < 0 || y >= 500 || x < 0 || x >= 500 {
+		return false
+	}
+
+	// -1 means wall, anything else is walkable
+	return roomMap[y][x] != -1
+}
+
+// hasPlayerNearby checks if there's a player within 4 tiles (Chebyshev distance)
+func (m *Model) hasPlayerNearby(newX, newY int) bool {
+	if m.connMgr == nil {
+		return false
+	}
+
+	gameState := m.connMgr.GetState()
+	if gameState == nil {
+		return false
+	}
+
+	// Check all players
+	for username, player := range gameState.Players {
+		// Skip self
+		if username == m.userName {
+			continue
+		}
+
+		// Parse player position
+		playerX, playerY := parsePosition(player.Pos)
+
+		// Calculate Chebyshev distance (max of abs differences)
+		// This creates a square area around each player
+		dx := abs(newX - playerX)
+		dy := abs(newY - playerY)
+		distance := max(dx, dy)
+
+		// If any player is within 4 tiles, can't move there
+		if distance <= 4 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// max returns the maximum of two integers
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// canMoveTo checks if the player can move to a position
+func (m *Model) canMoveTo(newX, newY int) bool {
+	// Check if position is walkable (not a wall)
+	if !isWalkable(newX, newY) {
+		return false
+	}
+
+	// Check if there's a player nearby
+	if m.hasPlayerNearby(newX, newY) {
+		return false
+	}
+
+	return true
 }
 
 // createAvatarFromIndices creates an Avatar from protocol avatar indices
@@ -136,21 +219,52 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.chatTarget = "Player2" // Placeholder
 		return m, nil
 
-	// Movement keys (placeholder for now - will be handled by game renderer)
-	case "up", "w":
-		// TODO: Send movement to server via connection manager
-		// if m.connMgr != nil && m.connMgr.IsConnected() {
-		//     m.connMgr.SendMove(x, y-1, "up")
-		// }
-	case "down", "s":
-		// TODO: Send movement to server
-	case "left", "a":
-		// TODO: Send movement to server
-	case "right", "d":
-		// TODO: Send movement to server
+	// Movement keys - WASD and arrow keys
+	case "up", "w", "W":
+		m.handleMovement(0, -1) // Move up (Y decreases)
+	case "down", "s", "S":
+		m.handleMovement(0, 1) // Move down (Y increases)
+	case "left", "a", "A":
+		m.handleMovement(-1, 0) // Move left (X decreases)
+	case "right", "d", "D":
+		m.handleMovement(1, 0) // Move right (X increases)
 	}
 
 	return m, nil
+}
+
+// handleMovement handles player movement requests
+func (m *Model) handleMovement(dx, dy int) {
+	// Check if connected
+	if m.connMgr == nil || !m.connMgr.IsConnected() {
+		return
+	}
+
+	// Get current player position
+	gameState := m.connMgr.GetState()
+	if gameState == nil {
+		return
+	}
+
+	player, exists := gameState.Players[m.userName]
+	if !exists {
+		return
+	}
+
+	// Parse current position
+	currentX, currentY := parsePosition(player.Pos)
+
+	// Calculate new position
+	newX := currentX + dx
+	newY := currentY + dy
+
+	// Validate movement
+	if !m.canMoveTo(newX, newY) {
+		return // Invalid move, do nothing
+	}
+
+	// Send move request to server
+	m.connMgr.SendPlayerMove(newX, newY)
 }
 
 // viewMainGame renders the split-screen main game view
@@ -250,14 +364,14 @@ type StyledCell struct {
 }
 
 // fillGameMap loads the map file and returns a 2D array of styled strings
-func fillGameMap() ([250][400]string, error) {
+func fillGameMap() ([500][500]string, error) {
 	data, err := os.ReadFile("internal/client/game_assets/map.txt")
 	if err != nil {
-		return [250][400]string{}, fmt.Errorf("failed to load map.txt: %w", err)
+		return [500][500]string{}, fmt.Errorf("failed to load map.txt: %w", err)
 	}
 
 	lines := strings.Split(string(data), "\n")
-	var result [250][400]string
+	var result [500][500]string
 
 	for i := range result {
 		for j := range result[i] {
@@ -308,19 +422,19 @@ func fillGameMap() ([250][400]string, error) {
 // fillRoomMap fills the room map with int annotations to indicate room number.
 // Returns -1 for walls (r, o, i), 2 for empty spaces not in rooms, room number (>=3) for spaces in rooms.
 // Rooms are defined by four walls ('r' characters), and adjacent rooms are separated by 'r' walls.
-func fillRoomMap() ([250][400]int, error) {
+func fillRoomMap() ([500][500]int, error) {
 	data, err := os.ReadFile("internal/client/game_assets/map.txt")
 	if err != nil {
-		return [250][400]int{}, fmt.Errorf("failed to load map.txt: %w", err)
+		return [500][500]int{}, fmt.Errorf("failed to load map.txt: %w", err)
 	}
 
 	lines := strings.Split(string(data), "\n")
-	var result [250][400]int
-	var mapChars [250][400]rune
+	var result [500][500]int
+	var mapChars [500][500]rune
 
 	// Initialize all cells and read map characters
 	for i, line := range lines {
-		if i >= 250 {
+		if i >= 500 {
 			break
 		}
 		line = strings.TrimRight(line, " \t\r")
@@ -391,7 +505,7 @@ func fillRoomMap() ([250][400]int, error) {
 // markOutsideSpaces marks spaces outside 'r' boundaries as 2 using flood fill
 // Only 'r' characters block the flood fill - 'o' and 'i' don't block it
 // This ensures that only spaces enclosed by 'r' boundaries are considered rooms
-func markOutsideSpaces(result *[250][400]int, mapChars *[250][400]rune, startY, startX int) {
+func markOutsideSpaces(result *[500][500]int, mapChars *[500][500]rune, startY, startX int) {
 	type point struct {
 		y, x int
 	}
@@ -439,7 +553,7 @@ func markOutsideSpaces(result *[250][400]int, mapChars *[250][400]rune, startY, 
 
 // floodFillRoom assigns a room number to all connected spaces starting from (startY, startX)
 // This ensures all spaces in the same enclosed region get the same room number
-func floodFillRoom(result *[250][400]int, mapChars *[250][400]rune, startY, startX, roomNum int) {
+func floodFillRoom(result *[500][500]int, mapChars *[500][500]rune, startY, startX, roomNum int) {
 	type point struct {
 		y, x int
 	}
@@ -505,40 +619,50 @@ func (m Model) renderGamePanel(width, height int) string {
 func (m *Model) calculateViewport() (cameraX, cameraY int) {
 	// Get game state
 	if m.connMgr == nil {
-		return 0, 0
+		return -1, -1 // Signal: no connection, show blank/loading
 	}
 
 	gameState := m.connMgr.GetState()
 	if gameState == nil {
-		return 0, 0
+		return -1, -1 // Signal: no game state, show blank/loading
 	}
 
 	// Get current player
 	currentPlayer, exists := gameState.Players[m.userName]
 	if !exists {
-		return 0, 0
+		return -1, -1 // Signal: player not spawned yet, show blank/loading
+	}
+
+	// Check if player has a valid position
+	if currentPlayer.Pos == "" {
+		return -1, -1 // Signal: no position assigned, show blank/loading
 	}
 
 	// Parse player position
 	playerX, playerY := parsePosition(currentPlayer.Pos)
 
+	// Validate parsed position
+	if playerX == 0 && playerY == 0 {
+		return -1, -1 // Signal: invalid position, show blank/loading
+	}
+
 	// Center camera on player
 	cameraX = playerX - (m.GameWorldWidth / 2)
 	cameraY = playerY - (m.GameWorldHeight / 2)
 
-	// Clamp to world bounds
+	// Clamp to world bounds [0, 500) x [0, 500)
 	if cameraX < 0 {
 		cameraX = 0
 	}
-	if cameraX+m.GameWorldWidth > 400 {
-		cameraX = 400 - m.GameWorldWidth
+	if cameraX+m.GameWorldWidth > 500 {
+		cameraX = 500 - m.GameWorldWidth
 	}
 
 	if cameraY < 0 {
 		cameraY = 0
 	}
-	if cameraY+m.GameWorldHeight > 250 {
-		cameraY = 250 - m.GameWorldHeight
+	if cameraY+m.GameWorldHeight > 500 {
+		cameraY = 500 - m.GameWorldHeight
 	}
 
 	return cameraX, cameraY
@@ -580,15 +704,37 @@ func (m *Model) populateGrids() {
 
 	// Populate from game world and room map (viewport centered on player)
 	cameraX, cameraY := m.calculateViewport()
+
+	// If camera is at -1, -1, show blank/loading state (player not spawned yet)
+	if cameraX == -1 && cameraY == -1 {
+		// Fill with transparent/blank cells
+		for y := 0; y < m.GameWorldHeight; y++ {
+			for x := 0; x < m.GameWorldWidth; x++ {
+				m.GameWorldGrid[y][x] = transparentStyle
+				m.RoomsGrid[y][x] = ""
+			}
+		}
+		return
+	}
+
+	// Normal viewport rendering with valid camera position
 	for y := 0; y < m.GameWorldHeight; y++ {
 		sourceY := cameraY + y
-		if sourceY >= 250 {
-			break
+		if sourceY < 0 || sourceY >= 500 {
+			// Out of bounds, show transparent
+			for x := 0; x < m.GameWorldWidth; x++ {
+				m.GameWorldGrid[y][x] = transparentStyle
+				m.RoomsGrid[y][x] = ""
+			}
+			continue
 		}
 		for x := 0; x < m.GameWorldWidth; x++ {
 			sourceX := cameraX + x
-			if sourceX >= 400 {
-				break
+			if sourceX < 0 || sourceX >= 500 {
+				// Out of bounds, show transparent
+				m.GameWorldGrid[y][x] = transparentStyle
+				m.RoomsGrid[y][x] = ""
+				continue
 			}
 			// Fill game world grid
 			m.GameWorldGrid[y][x] = gameWorldData[sourceY][sourceX]
@@ -624,7 +770,7 @@ func (m *Model) getCurrentPlayerRoom() int {
 	playerX, playerY := parsePosition(currentPlayer.Pos)
 
 	// Bounds check
-	if playerX < 0 || playerX >= 400 || playerY < 0 || playerY >= 250 {
+	if playerX < 0 || playerX >= 500 || playerY < 0 || playerY >= 500 {
 		return -1
 	}
 

@@ -246,9 +246,9 @@ func (m Model) handleConnectionEvent(event connection.Event) (tea.Model, tea.Cmd
 	// GAME STATE EVENTS
 	// ============================================
 	case connection.GameStateEvent:
-		// Server sent game state - move to avatar customization
-		// (This means server accepted our username)
+		// Server sent game state update - recalculate viewport and re-render
 		m.viewState = ViewMainGame
+		m.populateGrids() // Recalculate viewport based on current player position
 		return m, listenForEventsCmd(m.connMgr, m.eventChan)
 
 	case connection.GlobalChatMessagesEvent:

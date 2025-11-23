@@ -289,5 +289,17 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		}
 
 		c.send <- msg
+
+	case protocol.MsgPlayerMove:
+		var payload protocol.PlayerMovePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling player move payload: %v", err)
+			return
+		}
+
+		// Update player position in room
+		if c.Room != nil {
+			c.Room.UpdatePlayerPosition(c.Username, payload.NewX, payload.NewY)
+		}
 	}
 }
