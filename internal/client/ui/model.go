@@ -126,8 +126,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		// Changes dynamically the game world size based on terminal size
-		m.GameWorldWidth = int(0.8 * float64(msg.Width)) // 80% of terminal width because of chat panel
-		m.GameWorldHeight = msg.Height
+		// Cap viewport to reasonable maximums for performance
+		maxWidth := 120  // Maximum viewport width
+		maxHeight := 60  // Maximum viewport height
+
+		gameWidth := int(0.8 * float64(msg.Width)) // 80% of terminal width because of chat panel
+		if gameWidth > maxWidth {
+			gameWidth = maxWidth
+		}
+		m.GameWorldWidth = gameWidth
+
+		gameHeight := msg.Height
+		if gameHeight > maxHeight {
+			gameHeight = maxHeight
+		}
+		m.GameWorldHeight = gameHeight
 
 		// Populate grids from game world and room map data
 		m.populateGrids()

@@ -12,7 +12,7 @@ import (
 )
 
 var startingPositions = []string{
-	"120:100",
+	"10:100",
 	"18:150",
 	"18:200",
 	"23:100",
@@ -82,7 +82,7 @@ func (r *Room) Run() {
 }
 
 // findRandomSpawnPosition finds a random valid spawn position in the room
-// A valid position must be "-1" (outside area, not in a room) and have a 3x3 area around it that is all "-1"s
+// A valid position must have all 9 tiles in the 3x3 area as empty spaces ' '
 func (r *Room) findRandomSpawnPosition() (string, error) {
 	maxAttempts := 1000
 	for i := 0; i < maxAttempts; i++ {
@@ -90,12 +90,7 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 		y := rand.Intn(250)
 		posStr := fmt.Sprintf("%d:%d", y, x) // Format: "Y:X" to match client expectation
 
-		// Check if center position is "-1" (outside area, not in a room)
-		if r.GameState.Map[y][x] != "-1" {
-			continue
-		}
-
-		// Check if all 8 surrounding cells are also "-1"
+		// Check if all 9 tiles in the 3x3 area are empty spaces ' '
 		valid := true
 		for dy := -1; dy <= 1; dy++ {
 			for dx := -1; dx <= 1; dx++ {
@@ -108,8 +103,9 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 					break
 				}
 
-				// Check if cell is "-1"
-				if r.GameState.Map[ny][nx] != "-1" {
+				// Get value - must be exactly ' ' (space character)
+				cellValue := r.GameState.Map[ny][nx]
+				if cellValue != " " {
 					valid = false
 					break
 				}
@@ -264,14 +260,39 @@ func (r *Room) isWalkable(x, y int) bool {
 	return value != "r" && value != "o" && value != "i"
 }
 
+// canAvatarFitAt checks if a 3x3 avatar can fit at the given position
+// The avatar occupies a 3x3 grid centered on (x, y)
+func (r *Room) canAvatarFitAt(x, y int) bool {
+	// Check all 9 tiles in the 3x3 footprint - all must be ' ' (space)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			checkX := x + dx
+			checkY := y + dy
+
+			// Check bounds
+			if checkY < 0 || checkY >= 250 || checkX < 0 || checkX >= 400 {
+				return false // Out of bounds
+			}
+
+			// Check if tile is exactly ' ' (space character)
+			value := r.GameState.Map[checkY][checkX]
+			if value != " " && value != "e" {
+				return false // Not a walkable space
+			}
+		}
+	}
+
+	return true // All tiles in 3x3 grid are walkable spaces
+}
+
 // UpdatePlayerPosition updates a player's position
 func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Validate that the new position is walkable
-	if !r.isWalkable(x, y) {
-		// Invalid position (wall or out of bounds), reject movement
+	// Validate that the 3x3 avatar footprint fits at the new position
+	if !r.canAvatarFitAt(x, y) {
+		// Avatar would collide with wall or go out of bounds, reject movement
 		return
 	}
 

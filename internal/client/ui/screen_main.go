@@ -107,10 +107,44 @@ func max(a, b int) int {
 	return b
 }
 
+// canAvatarFitAt checks if a 3x3 avatar can fit at the given position
+// The avatar occupies a 3x3 grid centered on (x, y):
+//
+//	[x-1,y-1] [x,y-1] [x+1,y-1]
+//	[x-1,y]   [x,y]   [x+1,y]
+//	[x-1,y+1] [x,y+1] [x+1,y+1]
+func canAvatarFitAt(x, y int) bool {
+	roomMap, err := getRoomMap()
+	if err != nil {
+		return false
+	}
+
+	// Check all 9 tiles in the 3x3 footprint - all must be ' ' (space)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			checkX := x + dx
+			checkY := y + dy
+
+			// Check bounds
+			if checkY < 0 || checkY >= 250 || checkX < 0 || checkX >= 400 {
+				return false // Out of bounds
+			}
+
+			// Check if tile is exactly ' ' (space character)
+			value := roomMap[checkY][checkX]
+			if value != " " {
+				return false // Not a walkable space
+			}
+		}
+	}
+
+	return true // All tiles in 3x3 grid are walkable spaces
+}
+
 // canMoveTo checks if the player can move to a position
 func (m *Model) canMoveTo(newX, newY int) bool {
-	// Check if position is walkable (not a wall)
-	if !isWalkable(newX, newY) {
+	// Check if the 3x3 avatar footprint fits at the new position
+	if !canAvatarFitAt(newX, newY) {
 		return false
 	}
 
@@ -212,15 +246,24 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.chatTarget = "Player2" // Placeholder
 		return m, nil
 
-	// Movement keys - WASD and arrow keys
-	case "up", "w", "W":
-		m.handleMovement(0, -1) // Move up (Y decreases)
-	case "down", "s", "S":
-		m.handleMovement(0, 1) // Move down (Y increases)
-	case "left", "a", "A":
-		m.handleMovement(-1, 0) // Move left (X decreases)
-	case "right", "d", "D":
-		m.handleMovement(1, 0) // Move right (X increases)
+	// Movement keys - WASD and arrow keys (with diagonal support via number pad)
+	// Diagonal movement using number pad or vim-style keys
+	case "7", "y", "Y": // Up-Left
+		m.handleMovement(-1, -1)
+	case "8", "up", "w", "W", "k", "K": // Up
+		m.handleMovement(0, -1)
+	case "9", "u", "U": // Up-Right
+		m.handleMovement(1, -1)
+	case "4", "left", "a", "A", "h", "H": // Left
+		m.handleMovement(-1, 0)
+	case "6", "right", "d", "D", "l", "L": // Right
+		m.handleMovement(1, 0)
+	case "1", "b", "B": // Down-Left
+		m.handleMovement(-1, 1)
+	case "2", "down", "s", "S", "j", "J": // Down
+		m.handleMovement(0, 1)
+	case "3", "n", "N": // Down-Right
+		m.handleMovement(1, 1)
 	}
 
 	return m, nil
@@ -338,24 +381,30 @@ var (
 			Background(lipgloss.Color("#D2B48C")). // Warm light beige - easy on the eyes
 			Render(" ")
 
+	backgroundOutsideStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#000000")). // Black - inaccessible background
+				Render(" ")
+
 	transparentStyle = lipgloss.NewStyle().
 				Render(" ") // Transparent - no background color
 	// Player rendering styles
 	currentPlayerUsernameStyle = lipgloss.NewStyle().
-					Foreground(successColor).
-					Background(lipgloss.Color("#3A4A3A")).
+					Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray (almost black but visible)
+					Background(lipgloss.Color("#D2B48C")). // Match background
 					Bold(true)
 
 	otherPlayerUsernameStyle = lipgloss.NewStyle().
-					Foreground(accentColor).
-					Background(lipgloss.Color("#3A4A3A"))
+					Foreground(lipgloss.Color("#333333")). // Dark gray
+					Background(lipgloss.Color("#D2B48C"))  // Match background
 
 	currentPlayerAvatarStyle = lipgloss.NewStyle().
-					Foreground(highlightColor).
+					Foreground(lipgloss.Color("#1a1a1a")). // Very dark gray
+					Background(lipgloss.Color("#D2B48C")). // Match background
 					Bold(true)
 
 	otherPlayerAvatarStyle = lipgloss.NewStyle().
-				Foreground(fgColor)
+				Foreground(lipgloss.Color("#333333")). // Dark gray
+				Background(lipgloss.Color("#D2B48C"))  // Match background
 )
 
 // StyledCell represents a single grid cell with optional player overlay
@@ -375,16 +424,34 @@ func getStyledCharFromRoomValue(value string) string {
 		return inaccessibleStyle
 	case "e": // entrance
 		return entranceStyle
-	case "-1": // non-room space (hallway)
+	case "b": // background/outside (marked by map-fill utility)
+		return backgroundOutsideStyle
+	case " ": // walkable space
 		return backgroundStyle
 	default:
-		// Room number or empty space - check if it's a numeric room number
-		if value != "" {
-			// It's a room number, use background style
-			return backgroundStyle
-		}
-		// Empty/uninitialized, use transparent
-		return transparentStyle
+		// Any other character - use beige background
+		return backgroundStyle
+	}
+}
+
+// getBackgroundColorFromRoomValue returns the background color for a given room map value
+func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
+	switch value {
+	case "r": // room wall
+		return lipgloss.Color("#4A5D4A") // Sage green
+	case "o": // outer wall
+		return lipgloss.Color("#5C4A37") // Brown
+	case "i": // inaccessible
+		return lipgloss.Color("#6B5B4A") // Tan-brown
+	case "e": // entrance
+		return lipgloss.Color("#6A7D6A") // Light sage
+	case "b": // background/outside
+		return lipgloss.Color("#000000") // Black
+	case " ": // walkable space
+		return lipgloss.Color("#D2B48C") // Beige
+	default:
+		// Any other character - use beige
+		return lipgloss.Color("#D2B48C") // Default beige
 	}
 }
 
@@ -402,7 +469,7 @@ func fillRoomMap() ([250][400]string, error) {
 	var mapChars [250][400]rune
 
 	// Initialize all cells and read map characters
-		for i, line := range lines {
+	for i, line := range lines {
 		if i >= 250 {
 			break
 		}
@@ -418,53 +485,16 @@ func fillRoomMap() ([250][400]string, error) {
 		}
 	}
 
-	// First pass: mark all walls (r, o, i, e) with their character as the key
+	// Simply copy all characters from the map file directly
+	// No flood fill needed - the map file already has everything marked correctly
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
 			char := mapChars[i][j]
-			if char == 'r' || char == 'o' || char == 'i' || char == 'e' {
-				result[i][j] = string(char)
-			}
-		}
-	}
-
-	// Second pass: identify and mark spaces outside 'r'/'e' boundaries as "-1"
-	// This uses flood fill from edges to mark unenclosed spaces
-	// Only 'r' and 'e' characters block the flood fill - 'o' and 'i' don't block it
-	for i := 0; i < 250; i++ {
-		for j := 0; j < 400; j++ {
-			// Start flood fill from edge spaces that aren't 'r' or 'e' characters
-			// 'o' and 'i' are walls but don't define room boundaries
-			if (i == 0 || i == 249 || j == 0 || j == 399) && mapChars[i][j] != 'r' && mapChars[i][j] != 'e' {
-				markOutsideSpaces(&result, &mapChars, i, j)
-			}
-		}
-	}
-
-	// Third pass: assign room numbers only to spaces that are enclosed by 'r'/'e' boundaries
-	// A space is in a room only if it cannot reach the edge without passing through 'r'/'e' characters
-	roomNum := 1
-	for i := 0; i < 250; i++ {
-		for j := 0; j < 400; j++ {
-			// Skip if already marked (wall, outside, or already in a room)
-			if result[i][j] != "" {
-				continue
-			}
-
-			// This is an unvisited space that couldn't be reached from edges
-			// It must be enclosed by 'r'/'e' boundaries - assign it a room number
-			// Flood fill to assign all connected spaces the same room number
-			roomNumStr := strconv.Itoa(roomNum)
-			floodFillRoom(&result, &mapChars, i, j, roomNumStr)
-			roomNum++
-		}
-	}
-
-	// Convert any remaining empty strings (shouldn't happen, but safety check) to "-1"
-	for i := 0; i < 250; i++ {
-		for j := 0; j < 400; j++ {
-			if result[i][j] == "" {
-				result[i][j] = "-1"
+			// Convert characters to their string representation
+			if char == ' ' {
+				result[i][j] = " " // Walkable space
+			} else {
+				result[i][j] = string(char) // r, o, i, e, b, or any other character
 			}
 		}
 	}
@@ -495,27 +525,32 @@ func markOutsideSpaces(result *[250][400]string, mapChars *[250][400]rune, start
 			continue
 		}
 
-		// Only 'r' and 'e' characters block the flood fill - 'o' and 'i' are passable for this check
-		// This is because rooms are defined by 'r'/'e' boundaries, not 'o' or 'i'
-		if mapChars[p.y][p.x] == 'r' || mapChars[p.y][p.x] == 'e' {
-			// This is an 'r' or 'e' wall - don't mark it as outside, don't continue flood fill
+		// All wall characters ('r', 'e', 'o', 'i') block the flood fill
+		// This preserves wall colors and prevents flood fill from marking them as hallways
+		if mapChars[p.y][p.x] == 'r' || mapChars[p.y][p.x] == 'e' ||
+			mapChars[p.y][p.x] == 'o' || mapChars[p.y][p.x] == 'i' {
+			// This is a wall character - don't mark it as outside, don't continue flood fill
 			continue
 		}
 
-		// Mark as outside (not enclosed by 'r'/'e' boundaries)
+		// Mark as outside (not enclosed by wall boundaries)
 		result[p.y][p.x] = "-1"
 
-		// Add neighbors to stack (only if not 'r' or 'e' characters)
-		if p.y > 0 && mapChars[p.y-1][p.x] != 'r' && mapChars[p.y-1][p.x] != 'e' {
+		// Add neighbors to stack (only if not wall characters)
+		if p.y > 0 && mapChars[p.y-1][p.x] != 'r' && mapChars[p.y-1][p.x] != 'e' &&
+			mapChars[p.y-1][p.x] != 'o' && mapChars[p.y-1][p.x] != 'i' {
 			stack = append(stack, point{p.y - 1, p.x}) // up
 		}
-		if p.y < 249 && mapChars[p.y+1][p.x] != 'r' && mapChars[p.y+1][p.x] != 'e' {
+		if p.y < 249 && mapChars[p.y+1][p.x] != 'r' && mapChars[p.y+1][p.x] != 'e' &&
+			mapChars[p.y+1][p.x] != 'o' && mapChars[p.y+1][p.x] != 'i' {
 			stack = append(stack, point{p.y + 1, p.x}) // down
 		}
-		if p.x > 0 && mapChars[p.y][p.x-1] != 'r' && mapChars[p.y][p.x-1] != 'e' {
+		if p.x > 0 && mapChars[p.y][p.x-1] != 'r' && mapChars[p.y][p.x-1] != 'e' &&
+			mapChars[p.y][p.x-1] != 'o' && mapChars[p.y][p.x-1] != 'i' {
 			stack = append(stack, point{p.y, p.x - 1}) // left
 		}
-		if p.x < 399 && mapChars[p.y][p.x+1] != 'r' && mapChars[p.y][p.x+1] != 'e' {
+		if p.x < 399 && mapChars[p.y][p.x+1] != 'r' && mapChars[p.y][p.x+1] != 'e' &&
+			mapChars[p.y][p.x+1] != 'o' && mapChars[p.y][p.x+1] != 'i' {
 			stack = append(stack, point{p.y, p.x + 1}) // right
 		}
 	}
@@ -576,13 +611,33 @@ func (m Model) renderGamePanel(width, height int) string {
 	viewportWidth := width - 4
 	viewportHeight := height - 2
 
+	// Use the capped GameWorldWidth/Height instead of the full viewport dimensions
+	// This ensures the game grid is rendered at the capped size
+	actualWidth := m.GameWorldWidth
+	actualHeight := m.GameWorldHeight
+	if actualWidth > viewportWidth {
+		actualWidth = viewportWidth
+	}
+	if actualHeight > viewportHeight {
+		actualHeight = viewportHeight
+	}
+
 	// Render the actual game grid
-	gameGrid := m.renderGameWorld(viewportWidth, viewportHeight)
+	gameGrid := m.renderGameWorld(actualWidth, actualHeight)
+
+	// Center the game grid within the viewport
+	centeredGrid := lipgloss.Place(
+		width,
+		viewportHeight,
+		lipgloss.Center,
+		lipgloss.Center,
+		gameGrid,
+	)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		gameTitle,
-		gameGrid,
+		centeredGrid,
 	)
 }
 
@@ -755,6 +810,7 @@ func (m *Model) isPlayerInSpecificRoom(roomNum int) bool {
 }
 
 // renderPlayerToOverlay renders a single player to the overlay grid
+// Each character's background matches the tile it's on
 func (m *Model) renderPlayerToOverlay(
 	overlay [][]StyledCell,
 	player protocol.Player,
@@ -762,6 +818,12 @@ func (m *Model) renderPlayerToOverlay(
 	cameraX, cameraY int,
 	isCurrentPlayer bool,
 ) {
+	// Get room map for background color lookups
+	roomData, err := getRoomMap()
+	if err != nil {
+		return // Can't render without map data
+	}
+
 	// Parse player world position
 	playerX, playerY := parsePosition(player.Pos)
 
@@ -773,48 +835,88 @@ func (m *Model) renderPlayerToOverlay(
 	avatar := createAvatarFromIndices(player.Avatar)
 	avatarLines := strings.Split(avatar.Render(), "\n")
 
-	// Choose styles
-	usernameStyle := otherPlayerUsernameStyle
-	avatarStyle := otherPlayerAvatarStyle
+	// Choose foreground color
+	foregroundColor := lipgloss.Color("#333333") // Dark grey for others
 	if isCurrentPlayer {
-		usernameStyle = currentPlayerUsernameStyle
-		avatarStyle = currentPlayerAvatarStyle
+		foregroundColor = lipgloss.Color("#1a1a1a") // Very dark grey for current player
 	}
+	isBold := isCurrentPlayer
 
-	// Truncate username to 5 characters
+	// Truncate username to 5 characters (using runes for Unicode support)
 	displayUsername := username
-	if len(displayUsername) > 5 {
-		displayUsername = displayUsername[:5]
+	usernameRunes := []rune(displayUsername)
+	if len(usernameRunes) > 5 {
+		displayUsername = string(usernameRunes[:5])
 	}
 
-	// Render username (1 line above avatar)
-	usernameY := vy - 1
+	// Render username (2 line above avatar)
+	usernameY := vy - 2
 	usernameX := vx - 1 // Center 5-char username above 3-char avatar
 	if usernameY >= 0 && usernameY < len(overlay) {
 		for i, ch := range displayUsername {
 			charX := usernameX + i
 			if charX >= 0 && charX < len(overlay[0]) {
-				overlay[usernameY][charX].StyledString = usernameStyle.Render(string(ch))
+				// Get world coordinates for this character
+				worldX := cameraX + charX
+				worldY := cameraY + usernameY
+
+				// Get background color from tile underneath
+				bgColor := lipgloss.Color("#D2B48C") // Default beige
+				if worldY >= 0 && worldY < 250 && worldX >= 0 && worldX < 400 {
+					tileValue := roomData[worldY][worldX]
+					bgColor = getBackgroundColorFromRoomValue(tileValue)
+				}
+
+				// Create style with per-character background
+				charStyle := lipgloss.NewStyle().
+					Foreground(foregroundColor).
+					Background(bgColor)
+				if isBold {
+					charStyle = charStyle.Bold(true)
+				}
+
+				overlay[usernameY][charX].StyledString = charStyle.Render(string(ch))
 				overlay[usernameY][charX].HasContent = true
 			}
 		}
 	}
 
 	// Render avatar (only torso and legs for top-down view - lines 1 and 2)
-	for line := 1; line < 3 && line < len(avatarLines); line++ {
+	for line := 0; line < 3 && line < len(avatarLines); line++ {
 		avatarY := vy + (line - 1) // Line 1 -> vy, Line 2 -> vy+1
 		if avatarY < 0 || avatarY >= len(overlay) {
 			continue
 		}
 
 		avatarLine := avatarLines[line]
-		for charIdx := 0; charIdx < len(avatarLine) && charIdx < 3; charIdx++ {
+		// Convert to runes to handle Unicode correctly
+		avatarRunes := []rune(avatarLine)
+		for charIdx := 0; charIdx < len(avatarRunes) && charIdx < 3; charIdx++ {
 			avatarX := vx + charIdx
 			if avatarX < 0 || avatarX >= len(overlay[0]) {
 				continue
 			}
 
-			styledChar := avatarStyle.Render(string(avatarLine[charIdx]))
+			// Get world coordinates for this character
+			worldX := cameraX + avatarX
+			worldY := cameraY + avatarY
+
+			// Get background color from tile underneath
+			bgColor := lipgloss.Color("#D2B48C") // Default beige
+			if worldY >= 0 && worldY < 250 && worldX >= 0 && worldX < 400 {
+				tileValue := roomData[worldY][worldX]
+				bgColor = getBackgroundColorFromRoomValue(tileValue)
+			}
+
+			// Create style with per-character background
+			charStyle := lipgloss.NewStyle().
+				Foreground(foregroundColor).
+				Background(bgColor)
+			if isBold {
+				charStyle = charStyle.Bold(true)
+			}
+
+			styledChar := charStyle.Render(string(avatarRunes[charIdx]))
 			overlay[avatarY][avatarX].StyledString = styledChar
 			overlay[avatarY][avatarX].HasContent = true
 		}
