@@ -144,6 +144,11 @@ func (r *Room) handleRegister(client *Client) {
 	}
 	client.Pos = posStr
 
+	// Parse position and set CurrentRoomNumber
+	var x, y int
+	fmt.Sscanf(posStr, "%d:%d", &y, &x)
+	client.CurrentRoomNumber = r.getRoomNumberFromPosition(x, y)
+
 	r.Clients[client.ID] = client
 
 	// Update GameState.Players map
@@ -316,7 +321,7 @@ func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 	}
 
 	// Find the client by username
-	for _, client := range r.Clients {
+	for clientID, client := range r.Clients {
 		if client.Username == username {
 			// Update old position in PosToUsername map (remove)
 			oldPos := client.Pos
@@ -329,6 +334,9 @@ func (r *Room) UpdatePlayerPosition(username string, x, y int) {
 
 			// Update current room number based on new position
 			client.CurrentRoomNumber = r.getRoomNumberFromPosition(x, y)
+
+			// Update the client in the map (important - we were modifying a copy!)
+			r.Clients[clientID] = client
 
 			// Update new position in PosToUsername map
 			r.GameState.PosToUsername[newPos] = username

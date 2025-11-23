@@ -275,11 +275,8 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 			return
 		}
 
-		// Validate client is in the room they claim
-		if c.CurrentRoomNumber != payload.RoomNumber {
-			log.Printf("Client %s tried to send to room %s but is in room %s", c.Name, payload.RoomNumber, c.CurrentRoomNumber)
-			return
-		}
+		// No validation - trust the client about which room they're in
+		// (Server doesn't have flood-filled room map, only client does)
 
 		// Handle room chat through ChatManager
 		s.chatManager.HandleRoomChat(c, payload.RoomNumber, payload.Message, c.Room)
