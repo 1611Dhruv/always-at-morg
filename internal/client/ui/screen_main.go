@@ -1,8 +1,8 @@
 package ui
 
 import (
+	_ "embed"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +11,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yourusername/always-at-morg/internal/protocol"
 )
+
+//go:embed game_assets/map.txt
+var embeddedMap string
 
 type RoomCoord struct {
 	X    int
@@ -682,12 +685,7 @@ func getBackgroundColorFromRoomValue(value string) lipgloss.Color {
 // Returns map characters as keys ('r', 'o', 'i', 'e'), "-1" for spaces not in rooms, room number strings ("1", "2", ...) for spaces in rooms.
 // Rooms are defined by four walls ('r' or 'e' characters), and adjacent rooms are separated by 'r'/'e' walls.
 func fillRoomMap() ([250][400]string, error) {
-	data, err := os.ReadFile("internal/client/game_assets/map.txt")
-	if err != nil {
-		return [250][400]string{}, fmt.Errorf("failed to load map.txt: %w", err)
-	}
-
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(embeddedMap, "\n")
 	var result [250][400]string
 	var mapChars [250][400]rune
 

@@ -1,18 +1,15 @@
 package server
 
 import (
-	"fmt"
-	"os"
+	_ "embed"
 	"strings"
 )
 
-func fillRoomMap() ([250][400]string, error) {
-	data, err := os.ReadFile("internal/client/game_assets/map.txt")
-	if err != nil {
-		return [250][400]string{}, fmt.Errorf("failed to load map.txt: %w", err)
-	}
+//go:embed game_assets/map.txt
+var embeddedMap string
 
-	lines := strings.Split(string(data), "\n")
+func fillRoomMap() ([250][400]string, error) {
+	lines := strings.Split(embeddedMap, "\n")
 	var result [250][400]string
 	var mapChars [250][400]rune
 

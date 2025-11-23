@@ -1,5 +1,29 @@
 {
   "public": "build",
-  "cleanUrls": false,
-  "trailingSlash": false
+  "rewrites": [
+    {
+      "source": "**/*.@(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)",
+      "destination": "/$1"
+    },
+    {
+      "source": "/releases/**",
+      "destination": "/releases/$1"
+    },
+    {
+      "source": "/install.sh",
+      "destination": "/install.sh"
+    },
+    {
+      "source": "/install.ps1",
+      "destination": "/install.ps1"
+    },
+    {
+      "source": "/test-releases.html",
+      "destination": "/test-releases.html"
+    },
+    {
+      "source": "**",
+      "destination": "/index.html"
+    }
+  ]
 }
