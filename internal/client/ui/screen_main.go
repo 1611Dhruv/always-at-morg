@@ -212,7 +212,7 @@ func (m Model) updateMainGame(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						guess := strings.TrimPrefix(m.chatInput, "/answer ")
 						m.connMgr.SendTreasureHuntGuess(guess)
 						// Add local feedback
-						m.chatMessages = append(m.chatMessages, mutedStyle.Render("You guessed: "+guess))
+						m.globalChatMessages = append(m.globalChatMessages, mutedStyle.Render("You guessed: "+guess))
 					} else if m.chatMode == ChatModeGlobal {
 						// Send global chat message
 						m.connMgr.SendGlobalChat(m.userName, m.chatInput)
@@ -371,45 +371,58 @@ func (m Model) viewMainGame() string {
 	mPtr := &m
 	mPtr.populateGrids()
 
-	// Calculate dimensions (70% game, 30% chat)
+	// Calculate dimensions (70% game, 30% right panel)
 	gameWidth := int(float64(m.width) * 0.7)
-	chatWidth := m.width - gameWidth - 10 // Account for borders and margins
-	contentHeight := m.height - 10        // Leave more room for spacing
+	rightPanelWidth := m.width - gameWidth - 10 // Account for borders and margins
+	contentHeight := m.height - 10              // Leave more room for spacing
 
 	if contentHeight < 10 {
 		contentHeight = 10
 	}
 
-	// Chat section (right 30%)
-	chatPanelHeight := contentHeight - 4 // Leave room for input box below
-	chatContent := m.renderChatPanel(chatWidth, chatPanelHeight)
+	// Right panel section (30%) - split into quest box and chat box
+	// Quest box gets 40%, chat box gets 60% of available height (minus input box)
+	totalRightHeight := contentHeight - 4 // Leave room for input box below
+	questBoxHeight := int(float64(totalRightHeight) * 0.4)
+	chatBoxHeight := totalRightHeight - questBoxHeight - 2 // -2 for spacing between boxes
+
+	// Render quest box (top 40%)
+	questContent := m.renderQuestBox(rightPanelWidth, questBoxHeight)
+	questBox := chatBoxStyle.
+		Width(rightPanelWidth).
+		Height(questBoxHeight).
+		Render(questContent)
+
+	// Render chat box (bottom 60%)
+	chatContent := m.renderChatBox(rightPanelWidth, chatBoxHeight)
 	chatBox := chatBoxStyle.
-		Width(chatWidth).
-		Height(chatPanelHeight).
+		Width(rightPanelWidth).
+		Height(chatBoxHeight).
 		Render(chatContent)
 
-	// Chat input box (below chat panel, adapts to chat width)
-	chatInputBox := m.renderChatInputBox(chatWidth)
+	// Chat input box (below both boxes)
+	chatInputBox := m.renderChatInputBox(rightPanelWidth)
 
-	// Combine chat panel and input box vertically
-	chatSection := lipgloss.JoinVertical(
+	// Combine quest, chat, and input vertically
+	rightSection := lipgloss.JoinVertical(
 		lipgloss.Left,
+		questBox,
 		chatBox,
 		chatInputBox,
 	)
 
-	// Game section (left 70%) - extends to match full chat section height
+	// Game section (left 70%) - extends to match full right section height
 	gameContent := m.renderGamePanel(gameWidth, contentHeight)
 	gameBox := gameBoxStyle.
 		Width(gameWidth).
 		Height(contentHeight + 3).
 		Render(gameContent)
 
-	// Join game and chat sections horizontally
+	// Join game and right section horizontally
 	mainContent := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		gameBox,
-		chatSection,
+		rightSection,
 	)
 
 	// Status bar at the bottom
@@ -1051,7 +1064,160 @@ func (m Model) renderGameWorld(width, height int) string {
 	return builder.String()
 }
 
+// renderQuestBox renders the quest and announcements box (separate from chat)
+func (m Model) renderQuestBox(width, height int) string {
+	// Title
+	questTitle := lipgloss.NewStyle().
+		Foreground(accentColor).
+		Bold(true).
+		Width(width).
+		Align(lipgloss.Center).
+		Render("QUEST & ANNOUNCEMENTS")
+
+	// Treasure Hunt Clue
+	clueHeader := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true).Render("Current Clue:")
+	clueText := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFACD")).Render(m.currentClue)
+	hintText := mutedStyle.Render("(Type '/answer <text>' in chat)")
+
+	var contentLines []string
+	contentLines = append(contentLines, clueHeader)
+	contentLines = append(contentLines, clueText)
+	contentLines = append(contentLines, hintText)
+	contentLines = append(contentLines, "") // Spacer
+
+	// Announcements
+	displayCount := height - 6 // Reserve space for title, clue, and padding
+	if displayCount < 1 {
+		displayCount = 1
+	}
+
+	startIdx := 0
+	if len(m.announcements) > displayCount {
+		startIdx = len(m.announcements) - displayCount
+	}
+
+	for i := startIdx; i < len(m.announcements); i++ {
+		contentLines = append(contentLines, m.announcements[i])
+	}
+
+	questContent := lipgloss.NewStyle().
+		Width(width).
+		Height(height - 2).
+		Padding(0, 1).
+		Render(strings.Join(contentLines, "\n"))
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		questTitle,
+		questContent,
+	)
+}
+
+// renderChatBox renders the chat box (separate from quest/announcements)
+func (m Model) renderChatBox(width, height int) string {
+	// Determine mode indicator
+	var modeIndicator string
+	if m.chatMode == ChatModeGlobal {
+		modeIndicator = highlightStyle.Render("[GLOBAL]") + mutedStyle.Render(" Press 'p' for private chat")
+	} else if m.chatMode == ChatModePrivate {
+		if m.chatTarget != "" {
+			modeIndicator = highlightStyle.Render("[PRIVATE: "+m.chatTarget+"]") + mutedStyle.Render(" Press 'g' for global")
+		} else {
+			modeIndicator = mutedStyle.Render("Press 'p' to select a player")
+		}
+	}
+
+	// Chat title
+	chatTitle := lipgloss.NewStyle().
+		Foreground(accentColor).
+		Bold(true).
+		Width(width).
+		Align(lipgloss.Center).
+		Render("CHAT")
+
+	modeBar := lipgloss.NewStyle().
+		Width(width).
+		Align(lipgloss.Center).
+		Render(modeIndicator)
+
+	// Chat messages or player selection
+	var messageLines []string
+	displayCount := height - 4 // Reserve space for title, mode bar, padding
+	if displayCount < 1 {
+		displayCount = 1
+	}
+
+	// Show player selection if active
+	if m.playerSelectActive {
+		messageLines = append(messageLines, highlightStyle.Render("Select a player to chat with:"))
+		messageLines = append(messageLines, "")
+		for i, player := range m.nearbyPlayers {
+			if i < 9 { // Limit to 9 players (1-9 keys)
+				messageLines = append(messageLines, fmt.Sprintf("%s%d%s %s",
+					highlightStyle.Render("["),
+					i+1,
+					highlightStyle.Render("]"),
+					player))
+			}
+		}
+		messageLines = append(messageLines, "")
+		messageLines = append(messageLines, mutedStyle.Render("Press ESC to cancel"))
+	} else {
+		// Show messages based on current chat mode
+		var messages []string
+		if m.chatMode == ChatModeGlobal {
+			// Show global chat messages
+			messages = m.globalChatMessages
+		} else if m.chatMode == ChatModePrivate {
+			// Show private chat history with the selected user
+			if m.chatTarget != "" {
+				messages = m.privateChatHistory[m.chatTarget]
+				if messages == nil {
+					messages = []string{} // Initialize empty slice if no history yet
+				}
+			} else {
+				messages = []string{} // No target selected, show nothing
+			}
+		}
+
+		// Show most recent messages
+		startIdx := 0
+		if len(messages) > displayCount {
+			startIdx = len(messages) - displayCount
+		}
+
+		for i := startIdx; i < len(messages); i++ {
+			messageLines = append(messageLines, messages[i])
+		}
+
+		// If no messages, show placeholder
+		if len(messageLines) == 0 {
+			if m.chatMode == ChatModeGlobal {
+				messageLines = append(messageLines, mutedStyle.Render("No messages yet. Press 't' to type."))
+			} else if m.chatTarget != "" {
+				messageLines = append(messageLines, mutedStyle.Render("No messages with "+m.chatTarget+". Press 't' to type."))
+			} else {
+				messageLines = append(messageLines, mutedStyle.Render("Press 'p' to select a player"))
+			}
+		}
+	}
+
+	messagesContent := lipgloss.NewStyle().
+		Width(width).
+		Height(displayCount).
+		Padding(0, 1).
+		Render(strings.Join(messageLines, "\n"))
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		chatTitle,
+		modeBar,
+		messagesContent,
+	)
+}
+
 // renderChatPanel renders the chat panel (right 30%)
+// DEPRECATED: Keeping for compatibility, but split into renderQuestBox and renderChatBox
 func (m Model) renderChatPanel(width, height int) string {
 	// Split chat panel vertically: 30% announcements, 70% chat
 	announcementHeight := int(float64(height) * 0.3)

@@ -24,8 +24,8 @@ func getGeminiURL() string {
 	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
 		key = envKey
 	}
-	// UPDATED: Using "gemini-2.5-flash" based on your available models list
-	return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key
+	// Using gemini-2.0-flash-exp (better quality than lite, respects rate limits)
+	return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=" + key
 }
 
 // ---------------------------------------------------------
@@ -98,7 +98,7 @@ func GenerateTreasureMap(theme string) (*TreasureMap, error) {
 	systemPrompt := `You are a creative treasure hunt generator. 
 	Generate a fun and engaging treasure map with clues based on the theme provided.
 	Return the response strictly as a JSON object.`
-	
+
 	userPrompt := fmt.Sprintf("%s. Theme: %s. Structure: { \"title\": \"...\", \"description\": \"...\", \"clues\": [ {\"location\": \"...\", \"riddle\": \"...\"} ] }", systemPrompt, theme)
 
 	jsonStr, err := rawGeminiCall(userPrompt)
@@ -124,7 +124,7 @@ func rawGeminiCall(prompt string) (string, error) {
 			{Parts: []apiPart{{Text: prompt}}},
 		},
 	}
-	
+
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
@@ -139,7 +139,7 @@ func rawGeminiCall(prompt string) (string, error) {
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("API Error %d: %s", resp.StatusCode, string(body))
 	}
@@ -158,6 +158,7 @@ func rawGeminiCall(prompt string) (string, error) {
 	text = strings.TrimPrefix(text, "```json")
 	text = strings.TrimPrefix(text, "```")
 	text = strings.TrimSuffix(text, "```")
-	
+
 	return text, nil
 }
+

@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP service address")
+	addr := flag.String("addr", "0.0.0.0:8080", "HTTP service address")
 	flag.Parse()
 
 	srv := server.NewServer()

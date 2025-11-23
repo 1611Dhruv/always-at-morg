@@ -235,9 +235,10 @@ func (r *Room) update(chatManager *ChatManager) {
 			Players:       players, // Use the players map we just built!
 			PosToUsername: r.GameState.PosToUsername,
 		},
-		ChatMessages:  chatMessages.Messages,
-		Announcements: announcementPayloads,
-		Players:       players,
+		ChatMessages:      chatMessages.Messages,
+		Announcements:     announcementPayloads,
+		Players:           players,
+		TreasureHuntState: Manager.GetState(), // Broadcast treasure hunt state to all clients
 	}
 
 	// Send ONE broadcast with everything

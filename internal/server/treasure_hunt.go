@@ -22,15 +22,17 @@ type Clue struct {
 type TreasureHuntManager struct {
 	mu             sync.RWMutex
 	currentRiddle  *GeminiRiddle
+	nextRiddle     *GeminiRiddle // Pre-fetched next riddle during cooldown
 	currentRound   int
 	isSolved       bool
 	winner         string
 	showHint       bool
+	inCooldown     bool // True during 2-minute cooldown period
 	waitingForNext bool // Prevents ticker from skipping the "Solved" screen
 	gameOver       bool // Tracks if the daily limit is reached
 	announcements  []protocol.AnnouncementPayload
 	updateCallback func(protocol.TreasureHuntStatePayload)
-	resetCh        chan struct{} // Channel to trigger immediate next round
+	startNextCh    chan struct{} // Channel to signal next round is ready
 }
 
 // Initialize with a default riddle so clients never see "Loading..."
@@ -55,48 +57,53 @@ func (tm *TreasureHuntManager) SetUpdateCallback(callback func(protocol.Treasure
 	}
 }
 
-// StartGameLoop begins the 1-minute cycle
+// StartGameLoop begins the game cycle: 1 min round + 2 min cooldown
 func (tm *TreasureHuntManager) StartGameLoop() {
 	// Prevent multiple loops if called twice
-	if tm.resetCh != nil {
+	if tm.startNextCh != nil {
 		return
 	}
-	
-	// Buffered channel to ensure we don't miss the signal
-	tm.resetCh = make(chan struct{}, 1)
-	
+
+	// Buffered channel to signal when next round is ready
+	tm.startNextCh = make(chan struct{}, 1)
+
 	// Ensure we have a riddle to start with
 	if tm.currentRiddle == nil && !tm.gameOver {
-		tm.nextRiddle()
+		tm.loadNextRiddle()
 	}
 
-	ticker := time.NewTicker(1 * time.Minute)
-	hintTimer := time.NewTicker(30 * time.Second)
+	roundTimer := time.NewTicker(1 * time.Minute)   // 1 minute active round
+	hintTimer := time.NewTicker(30 * time.Second)   // Hint at 30 seconds (halfway)
 
 	go func() {
 		for {
 			select {
-			case <-ticker.C:
+			case <-roundTimer.C:
 				tm.mu.RLock()
 				waiting := tm.waitingForNext
 				isOver := tm.gameOver
+				inCooldown := tm.inCooldown
 				tm.mu.RUnlock()
 
 				if isOver {
 					continue
 				}
 
-				// Only advance if we aren't waiting for the 5s post-win timer
-				if !waiting {
-					tm.nextRiddle()
-					hintTimer.Reset(30 * time.Second)
+				// If we're in cooldown, don't do anything (waiting for next riddle)
+				if inCooldown {
+					continue
 				}
 
-			case <-tm.resetCh:
-				// Forced update (e.g. 5s after someone won)
-				tm.nextRiddle()
-				// Reset the main timer so we get a full minute for the new riddle
-				ticker.Reset(1 * time.Minute)
+				// Only start cooldown if we aren't waiting for the 5s post-win timer
+				if !waiting {
+					tm.startCooldown()
+					hintTimer.Stop() // Stop hint timer during cooldown
+				}
+
+			case <-tm.startNextCh:
+				// Next riddle is ready! Start the new round
+				tm.activateNextRound()
+				roundTimer.Reset(1 * time.Minute)
 				hintTimer.Reset(30 * time.Second)
 
 			case <-hintTimer.C:
@@ -106,17 +113,19 @@ func (tm *TreasureHuntManager) StartGameLoop() {
 	}()
 }
 
-func (tm *TreasureHuntManager) nextRiddle() {
+// startCooldown begins the 2-minute cooldown and fetches next riddle
+func (tm *TreasureHuntManager) startCooldown() {
 	tm.mu.Lock()
+
 	// Check if we've reached the daily limit (3 questions)
-	// If currentRound is 3 and it was just solved, we are moving to 4, which is Game Over.
-	if tm.currentRound > 3 {
+	if tm.currentRound >= 3 {
 		tm.gameOver = true
 		tm.currentRiddle = nil
 		tm.isSolved = true
 		tm.winner = ""
-		tm.announcements = nil // Clear announcements
-		
+		tm.announcements = nil
+		tm.inCooldown = false
+
 		state := tm.getStateLocked()
 		callback := tm.updateCallback
 		tm.mu.Unlock()
@@ -127,13 +136,95 @@ func (tm *TreasureHuntManager) nextRiddle() {
 		}
 		return
 	}
+
+	// If previous wasn't solved, announce the answer
+	if !tm.isSolved && tm.currentRiddle != nil {
+		tm.addAnnouncement(fmt.Sprintf("Time's up! The answer was: %s", tm.currentRiddle.Answer))
+	}
+
+	tm.inCooldown = true
+	tm.waitingForNext = false
+
+	// Show cooldown message to clients
+	state := tm.getStateLocked()
+	callback := tm.updateCallback
 	tm.mu.Unlock()
 
-	// Generate outside lock to prevent blocking
+	if callback != nil {
+		log.Println("Broadcasting cooldown state...")
+		callback(state)
+	}
+
+	// Start fetching next riddle in background (2 minute cooldown)
+	go func() {
+		log.Println("Starting 2-minute cooldown, fetching next riddle from Gemini...")
+
+		// Generate riddle (this may take a few seconds)
+		riddle, err := GenerateRiddle()
+		if err != nil {
+			log.Printf("Failed to generate riddle: %v", err)
+			// Fallback to a simple CS one if API fails
+			riddle = &GeminiRiddle{
+				Question: "I have keys but no locks. I have a space but no room. You can enter, but never leave. What am I?",
+				Answer:   "keyboard",
+				Hint:     "Input device...",
+			}
+		}
+
+		// Wait for the remainder of 2 minutes after fetching
+		// (If fetch took 5 seconds, wait 115 more seconds)
+		time.Sleep(2 * time.Minute)
+
+		tm.mu.Lock()
+		tm.nextRiddle = riddle
+		tm.mu.Unlock()
+
+		log.Printf("Riddle ready: %s (Ans: %s)", riddle.Question, riddle.Answer)
+		log.Println("Cooldown complete, signaling next round...")
+
+		// Signal that next round is ready
+		select {
+		case tm.startNextCh <- struct{}{}:
+		default:
+		}
+	}()
+}
+
+// activateNextRound switches to the pre-fetched next riddle
+func (tm *TreasureHuntManager) activateNextRound() {
+	tm.mu.Lock()
+
+	if tm.nextRiddle == nil {
+		log.Println("WARNING: activateNextRound called but nextRiddle is nil!")
+		tm.mu.Unlock()
+		return
+	}
+
+	tm.currentRiddle = tm.nextRiddle
+	tm.nextRiddle = nil
+	tm.currentRound++
+	tm.isSolved = false
+	tm.winner = ""
+	tm.showHint = false
+	tm.inCooldown = false
+
+	log.Printf("New Round %d: %s (Ans: %s)", tm.currentRound, tm.currentRiddle.Question, tm.currentRiddle.Answer)
+
+	state := tm.getStateLocked()
+	callback := tm.updateCallback
+	tm.mu.Unlock()
+
+	if callback != nil {
+		log.Printf("Broadcasting new riddle state (Round %d)", state.CurrentClueIndex)
+		callback(state)
+	}
+}
+
+// loadNextRiddle is used for initial setup only
+func (tm *TreasureHuntManager) loadNextRiddle() {
 	riddle, err := GenerateRiddle()
 	if err != nil {
-		log.Printf("Failed to generate riddle: %v", err)
-		// Fallback to a simple CS one if API fails
+		log.Printf("Failed to generate initial riddle: %v", err)
 		riddle = &GeminiRiddle{
 			Question: "I have keys but no locks. I have a space but no room. You can enter, but never leave. What am I?",
 			Answer:   "keyboard",
@@ -142,41 +233,21 @@ func (tm *TreasureHuntManager) nextRiddle() {
 	}
 
 	tm.mu.Lock()
-	
-	// If previous wasn't solved, maybe announce the answer?
-	if !tm.isSolved && tm.currentRiddle != nil {
-		tm.addAnnouncement(fmt.Sprintf("Time's up! The answer was: %s", tm.currentRiddle.Answer))
-	}
-
 	tm.currentRiddle = riddle
-	tm.currentRound++
-	tm.isSolved = false
-	tm.winner = ""
-	tm.showHint = false
-	tm.waitingForNext = false // Reset flag so ticker can work again
-	
-	log.Printf("New Riddle: %s (Ans: %s)", riddle.Question, riddle.Answer)
-	
-	// Prepare state for broadcast
-	state := tm.getStateLocked()
-	callback := tm.updateCallback
+	tm.currentRound = 1
 	tm.mu.Unlock()
 
-	// Broadcast update
-	if callback != nil {
-		log.Printf("Broadcasting new riddle state (Round %d)", state.CurrentClueIndex)
-		callback(state)
-	}
+	log.Printf("Initial Riddle: %s (Ans: %s)", riddle.Question, riddle.Answer)
 }
 
 func (tm *TreasureHuntManager) revealHint() {
 	tm.mu.Lock()
-	if !tm.isSolved && !tm.waitingForNext && !tm.gameOver {
+	if !tm.isSolved && !tm.waitingForNext && !tm.gameOver && !tm.inCooldown {
 		tm.showHint = true
 		state := tm.getStateLocked()
 		callback := tm.updateCallback
 		tm.mu.Unlock()
-		
+
 		if callback != nil {
 			callback(state)
 		}
@@ -190,7 +261,7 @@ func (tm *TreasureHuntManager) CheckGuess(username, guess string) bool {
 	tm.mu.Lock()
 	// We do NOT defer unlock here because we want to unlock before calling the callback
 
-	if tm.isSolved || tm.currentRiddle == nil || tm.waitingForNext || tm.gameOver {
+	if tm.isSolved || tm.currentRiddle == nil || tm.waitingForNext || tm.gameOver || tm.inCooldown {
 		tm.mu.Unlock()
 		return false
 	}
@@ -203,7 +274,7 @@ func (tm *TreasureHuntManager) CheckGuess(username, guess string) bool {
 		tm.winner = username
 		tm.waitingForNext = true // Block the main ticker from skipping the win screen
 		tm.addAnnouncement(fmt.Sprintf("🏆 WINNER: %s guessed '%s' correctly!", username, cleanAnswer))
-		
+
 		// Capture state and callback while locked
 		state := tm.getStateLocked()
 		callback := tm.updateCallback
@@ -215,18 +286,15 @@ func (tm *TreasureHuntManager) CheckGuess(username, guess string) bool {
 			callback(state)
 		}
 
-		// Schedule the next round to start in 5 seconds
+		// Wait 5 seconds to show win screen, then start cooldown
 		time.AfterFunc(5*time.Second, func() {
-			// Non-blocking send in case loop isn't running
-			select {
-			case tm.resetCh <- struct{}{}:
-			default:
-			}
+			log.Println("Win screen timeout, starting cooldown...")
+			tm.startCooldown()
 		})
 
 		return true
 	}
-	
+
 	tm.mu.Unlock()
 	return false
 }
@@ -253,6 +321,15 @@ func (tm *TreasureHuntManager) getStateLocked() protocol.TreasureHuntStatePayloa
 			CurrentClueIndex: tm.currentRound,
 			ClueText:         "🎉 Daily Limit Reached! 🎉\n\nYou've completed today's Computer Science challenges.\nCheck back later!",
 			Completed:        true,
+		}
+	}
+
+	// Check for cooldown state
+	if tm.inCooldown {
+		return protocol.TreasureHuntStatePayload{
+			CurrentClueIndex: tm.currentRound,
+			ClueText:         "⏳ Cooldown Period ⏳\n\nPreparing next riddle...\nTake a break, next question coming in ~2 minutes!",
+			Completed:        false,
 		}
 	}
 
