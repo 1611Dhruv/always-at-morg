@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BASE_URL = "https://web.always-at-mor.big/releases"
+$BASE_URL = "https://web.always-at-morg.bid/releases"
 
 Write-Host "╔═══════════════════════════════════════╗" -ForegroundColor Green
 Write-Host "║    Always at Morg - Installer         ║" -ForegroundColor Green
