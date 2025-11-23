@@ -3,6 +3,7 @@ package connection
 import (
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,13 +13,14 @@ import (
 
 // Manager manages the WebSocket connection to the server
 type Manager struct {
-	serverURL     string
-	conn          *websocket.Conn
-	state         *State
-	eventCallback func(Event)
-	connected     bool
-	mu            sync.RWMutex
-	done          chan struct{}
+	serverURL         string
+	conn              *websocket.Conn
+	state             *State
+	eventCallback     func(Event)
+	connected         bool
+	mu                sync.RWMutex
+	done              chan struct{}
+	lastTreasureState protocol.TreasureHuntStatePayload
 }
 
 // NewManager creates a new connection manager
@@ -123,6 +125,36 @@ func (m *Manager) SendGlobalChat(userName, message string) error {
 		Username:  userName,
 		Message:   message,
 		Timestamp: time.Now().Unix(),
+	})
+}
+
+// ProcessChatInput handles raw input from the chat box.
+// It detects commands (like /answer) and routes them appropriately,
+// otherwise sends a global chat message.
+func (m *Manager) ProcessChatInput(userName, text string) error {
+	trimmed := strings.TrimSpace(text)
+	
+	// Check for /answer command
+	if strings.HasPrefix(trimmed, "/answer") {
+		parts := strings.SplitN(trimmed, " ", 2)
+		if len(parts) > 1 {
+			guess := strings.TrimSpace(parts[1])
+			if guess != "" {
+				return m.SendTreasureHuntGuess(guess)
+			}
+		}
+		// If they typed just "/answer" or empty guess, maybe ignore or send as chat?
+		// For now, let's fall through to chat if it's malformed, or you could return nil.
+	}
+
+	// Default: Send as global chat
+	return m.SendGlobalChat(userName, text)
+}
+
+// SendTreasureHuntGuess sends a guess to the server
+func (m *Manager) SendTreasureHuntGuess(guess string) error {
+	return m.sendMessage(protocol.MsgTreasureHuntGuess, protocol.TreasureHuntGuessPayload{
+		Guess: guess,
 	})
 }
 
@@ -255,6 +287,20 @@ func (m *Manager) handleMessage(data []byte) {
 			m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
 		}
 
+		// Update treasure hunt state
+		// If payload has data, update our cache
+		if payload.TreasureHuntState.ClueText != "" || payload.TreasureHuntState.Completed {
+			m.lastTreasureState = payload.TreasureHuntState
+		}
+
+		// Always dispatch the current known state if we have one
+		if m.lastTreasureState.ClueText != "" || m.lastTreasureState.Completed {
+			m.sendEvent(TreasureHuntStateEvent{
+				ClueText:  m.lastTreasureState.ClueText,
+				Completed: m.lastTreasureState.Completed,
+			})
+		}
+
 		// TODO: Handle announcements and players when needed
 
 	case protocol.MsgGlobalChatMessages:
@@ -276,6 +322,22 @@ func (m *Manager) handleMessage(data []byte) {
 
 		m.sendEvent(GlobalChatMessagesEvent{Messages: messages})
 		// log.Printf("Received %d global chat messages", len(messages))
+
+	case protocol.MsgTreasureHuntState:
+		// Treasure hunt state update, dispatches events to UI
+		var payload protocol.TreasureHuntStatePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			log.Printf("Error unmarshaling treasure hunt state: %v", err)
+			return
+		}
+		
+		// Update cache
+		m.lastTreasureState = payload
+		
+		m.sendEvent(TreasureHuntStateEvent{
+			ClueText:  payload.ClueText,
+			Completed: payload.Completed,
+		})
 
 	default:
 		log.Printf("Unhandled message type: %s", msg.Type)

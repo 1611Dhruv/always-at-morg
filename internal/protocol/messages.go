@@ -33,6 +33,9 @@ const (
 	MsgChatResponse  MessageType = "chat_response"  // accept/decline chat interaction
 	MsgNearbyPlayers MessageType = "nearby_players" // take lite
 
+	// Treasure Hunt, defined payloads for sending guesses and receiving guesses 
+	MsgTreasureHuntGuess MessageType = "treasure_hunt_guess" //client guess, (Client -> Server)
+	MsgTreasureHuntState MessageType = "treasure_hunt_state"//server update, Server -> Client).
 )
 
 // Message is the wrapper for all WebSocket messages
@@ -131,10 +134,23 @@ type GlobalChatMessagesPayload struct {
 
 // KuluchifiedStatePayload is the unified per-tick state update containing everything
 type KuluchifiedStatePayload struct {
-	GameState     GameState             `json:"game_state"`
-	ChatMessages  []GlobalChatPayload   `json:"chat_messages"`
-	Announcements []AnnouncementPayload `json:"announcements"`
-	Players       map[string]Player     `json:"players"`
+	GameState         GameState                `json:"game_state"`
+	ChatMessages      []GlobalChatPayload      `json:"chat_messages"`
+	Announcements     []AnnouncementPayload    `json:"announcements"`
+	Players           map[string]Player        `json:"players"`
+	TreasureHuntState TreasureHuntStatePayload `json:"treasure_hunt_state"`
+}
+
+// TreasureHuntGuessPayload is sent by client to guess an answer
+type TreasureHuntGuessPayload struct {
+	Guess string `json:"guess"`
+}
+
+// TreasureHuntStatePayload is sent by server to update client on progress
+type TreasureHuntStatePayload struct {
+	CurrentClueIndex int    `json:"current_clue_index"`
+	ClueText         string `json:"clue_text"`
+	Completed        bool   `json:"completed"`
 }
 
 // EncodeMessage encodes a message with its payload
