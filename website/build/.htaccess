@@ -1,0 +1,22 @@
+# Apache configuration for Always at Morg
+
+# Enable rewrite engine
+RewriteEngine On
+
+# Don't rewrite files that exist (like releases, install scripts)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Rewrite all other requests to index.html for SPA routing
+RewriteRule ^ index.html [L]
+
+# Ensure proper MIME types for install scripts
+<FilesMatch "\.(sh|ps1)$">
+    Header set Content-Type "text/plain; charset=utf-8"
+</FilesMatch>
+
+# Allow CORS for releases (optional, for security)
+<FilesMatch "\.(exe|bin)$">
+    Header set Access-Control-Allow-Origin "*"
+</FilesMatch>
