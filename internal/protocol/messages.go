@@ -64,7 +64,7 @@ type GameState struct {
 	Players       map[string]Player `json:"players"`
 	PosToUsername map[string]string `json:"pos_to_username"`
 	Tick          int64             `json:"tick"`
-	Map           [250][400]int     `json:"-"` // Don't send to clients
+	Map           [250][400]string     `json:"-"` // Don't send to clients
 }
 
 // Player represents a player in the game

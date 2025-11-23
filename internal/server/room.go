@@ -32,7 +32,7 @@ func NewRoom(id string, chatManager *ChatManager) *Room {
 	roomMap, err := fillRoomMap()
 	if err != nil {
 		log.Printf("Warning: failed to load room map: %v", err)
-		roomMap = [250][400]int{} // Use empty map as fallback
+		roomMap = [250][400]string{} // Use empty map as fallback
 	}
 
 	return &Room{
@@ -76,7 +76,7 @@ func (r *Room) Run() {
 }
 
 // findRandomSpawnPosition finds a random valid spawn position in the room
-// A valid position must be a 2 (outside area) and have a 3x3 area around it that is all 2s
+// A valid position must be "-1" (outside area, not in a room) and have a 3x3 area around it that is all "-1"s
 func (r *Room) findRandomSpawnPosition() (string, error) {
 	maxAttempts := 1000
 	for i := 0; i < maxAttempts; i++ {
@@ -84,12 +84,12 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 		y := rand.Intn(250)
 		posStr := fmt.Sprintf("%d:%d", x, y)
 
-		// Check if center position is 2 (outside area)
-		if r.GameState.Map[y][x] != 2 {
+		// Check if center position is "-1" (outside area, not in a room)
+		if r.GameState.Map[y][x] != "-1" {
 			continue
 		}
 
-		// Check if all 8 surrounding cells are also 2
+		// Check if all 8 surrounding cells are also "-1"
 		valid := true
 		for dy := -1; dy <= 1; dy++ {
 			for dx := -1; dx <= 1; dx++ {
@@ -102,8 +102,8 @@ func (r *Room) findRandomSpawnPosition() (string, error) {
 					break
 				}
 
-				// Check if cell is 2
-				if r.GameState.Map[ny][nx] != 2 {
+				// Check if cell is "-1"
+				if r.GameState.Map[ny][nx] != "-1" {
 					valid = false
 					break
 				}
