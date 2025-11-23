@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+
 	"github.com/google/uuid"
 	"github.com/yourusername/always-at-morg/internal/protocol"
 )
@@ -15,6 +16,7 @@ var startingPositions = []string{
 	"18:200",
 	"23:100",
 }
+
 
 // Room represents a game room/session
 type Room struct {
@@ -33,6 +35,12 @@ type Room struct {
 
 // NewRoom creates a new game room
 func NewRoom(id string, chatManager *ChatManager) *Room {
+	roomMap, err := fillRoomMap()
+	if err != nil {
+		log.Printf("Warning: failed to load room map: %v", err)
+		roomMap = [250][400]int{} // Use empty map as fallback
+	}
+
 	return &Room{
 		ID:      id,
 		Clients: make(map[string]*Client),
@@ -40,6 +48,7 @@ func NewRoom(id string, chatManager *ChatManager) *Room {
 			Tick:          0,
 			Players:       make(map[string]protocol.Player),
 			PosToUsername: make(map[string]string),
+			Map:           roomMap,
 		},
 		chatManager: chatManager,
 
@@ -76,12 +85,23 @@ func (r *Room) handleRegister(client *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Assign starting position based on current number of clients
-	client.Pos = startingPositions[len(r.Clients)]
+	// Assign starting position based on current number of clients (cycle through positions)
+	posStr := startingPositions[len(r.Clients)%len(startingPositions)]
+	client.Pos = posStr
 
 	r.Clients[client.ID] = client
 
-	log.Printf("Player %s joined room %s at position (%d)", client.Name, r.ID, client.Pos)
+	// Update GameState.Players map
+	r.GameState.Players[client.Username] = protocol.Player{
+		Username: client.Username,
+		Pos:      posStr,
+		Avatar:   client.Avatar,
+	}
+
+	// Update GameState.PosToUsername map to track occupied positions
+	r.GameState.PosToUsername[posStr] = client.Username
+
+	log.Printf("Player %s joined room %s at position %s", client.Name, r.ID, client.Pos)
 
 	// Send room joined message to the new client
 	msg, _ := protocol.EncodeMessage(protocol.MsgRoomJoined, protocol.RoomJoinedPayload{
