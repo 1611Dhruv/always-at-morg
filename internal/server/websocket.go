@@ -62,7 +62,7 @@ func NewServer() *Server {
 	// Setup treasure hunt broadcast
 	Manager.SetUpdateCallback(func(payload protocol.TreasureHuntStatePayload) {
 		// Broadcast to all rooms/clients
-		// Since we don't have a direct "BroadcastAll" on RoomManager, we can iterate or 
+		// Since we don't have a direct "BroadcastAll" on RoomManager, we can iterate or
 		// rely on the fact that the next tick will pick it up.
 		// Ideally, RoomManager should have a Broadcast method.
 		// For now, we rely on the game loop tick in room.go to pick up the state via Manager.GetState()
@@ -199,7 +199,7 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 		log.Printf("New user %s onboarded with avatar %v", c.Username, c.Avatar)
 
 		// Auto-join default room
-		room := s.roomManager.GetOrCreateRoom("0")
+		room := s.roomManager.GetOrCreateRoom("default-room")
 		c.Room = room
 		c.inGame = true
 		room.register <- c
@@ -219,7 +219,7 @@ func (c *Client) handleMessage(s *Server, data []byte) {
 
 		// Set default room ID if not specified
 		if payload.RoomID == "" {
-			payload.RoomID = "0"
+			payload.RoomID = "default-room"
 		}
 
 		// Check if username exists in UserManager
