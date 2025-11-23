@@ -14,7 +14,7 @@ import (
 
 var (
 	gameWorld   [250][400]string
-	roomMap     [250][400]int
+	roomMap     [250][400]string
 	gameMapOnce sync.Once
 	gameMapErr  error
 	roomMapErr  error
@@ -28,7 +28,7 @@ func getGameWorld() ([250][400]string, error) {
 	return gameWorld, gameMapErr
 }
 
-func getRoomMap() ([250][400]int, error) {
+func getRoomMap() ([250][400]string, error) {
 	// Ensure maps are loaded
 	_, _ = getGameWorld()
 	return roomMap, roomMapErr
@@ -219,6 +219,10 @@ var (
 			Background(lipgloss.Color("#4A5D4A")). // Muted sage green (rooms)
 			Render(" ")
 
+	entranceStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#6A7D6A")). // Lighter sage green (entrances)
+			Render(" ")
+
 	backgroundStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#D2B48C")). // Warm light beige - easy on the eyes
 			Render(" ")
@@ -278,8 +282,8 @@ func fillGameMap() ([250][400]string, error) {
 				break
 			}
 
-			// Check if current character is a wall/room/inaccessible
-			if char == 'o' || char == 'i' || char == 'r' {
+			// Check if current character is a wall/room/inaccessible/entrance
+			if char == 'o' || char == 'i' || char == 'r' || char == 'e' {
 				wallFound = true
 			}
 
@@ -294,6 +298,8 @@ func fillGameMap() ([250][400]string, error) {
 					styledChar = inaccessibleStyle
 				case 'r': // room - solid dark gray
 					styledChar = roomStyle
+				case 'e': // entrance - lighter room border
+					styledChar = entranceStyle
 				default: // space or other characters - preserve as-is
 					styledChar = backgroundStyle
 				}
@@ -305,17 +311,17 @@ func fillGameMap() ([250][400]string, error) {
 	return result, nil
 }
 
-// fillRoomMap fills the room map with int annotations to indicate room number.
-// Returns -1 for walls (r, o, i), 2 for empty spaces not in rooms, room number (>=3) for spaces in rooms.
-// Rooms are defined by four walls ('r' characters), and adjacent rooms are separated by 'r' walls.
-func fillRoomMap() ([250][400]int, error) {
+// fillRoomMap fills the room map with string annotations.
+// Returns map characters as keys ('r', 'o', 'i', 'e'), "-1" for spaces not in rooms, room number strings ("1", "2", ...) for spaces in rooms.
+// Rooms are defined by four walls ('r' or 'e' characters), and adjacent rooms are separated by 'r'/'e' walls.
+func fillRoomMap() ([250][400]string, error) {
 	data, err := os.ReadFile("internal/client/game_assets/map.txt")
 	if err != nil {
-		return [250][400]int{}, fmt.Errorf("failed to load map.txt: %w", err)
+		return [250][400]string{}, fmt.Errorf("failed to load map.txt: %w", err)
 	}
 
 	lines := strings.Split(string(data), "\n")
-	var result [250][400]int
+	var result [250][400]string
 	var mapChars [250][400]rune
 
 	// Initialize all cells and read map characters
@@ -326,7 +332,7 @@ func fillRoomMap() ([250][400]int, error) {
 		line = strings.TrimRight(line, " \t\r")
 
 		for j := range result[i] {
-			result[i][j] = 0 // Uninitialized marker
+			result[i][j] = "" // Uninitialized marker
 			if j < len(line) {
 				mapChars[i][j] = rune(line[j])
 			} else {
@@ -335,52 +341,53 @@ func fillRoomMap() ([250][400]int, error) {
 		}
 	}
 
-	// First pass: mark all walls (r, o, i) as -1
+	// First pass: mark all walls (r, o, i, e) with their character as the key
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
 			char := mapChars[i][j]
-			if char == 'r' || char == 'o' || char == 'i' {
-				result[i][j] = -1
+			if char == 'r' || char == 'o' || char == 'i' || char == 'e' {
+				result[i][j] = string(char)
 			}
 		}
 	}
 
-	// Second pass: identify and mark spaces outside 'r' boundaries as 2
+	// Second pass: identify and mark spaces outside 'r'/'e' boundaries as "-1"
 	// This uses flood fill from edges to mark unenclosed spaces
-	// Only 'r' characters block the flood fill - 'o' and 'i' don't block it
+	// Only 'r' and 'e' characters block the flood fill - 'o' and 'i' don't block it
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
-			// Start flood fill from edge spaces that aren't 'r' characters
+			// Start flood fill from edge spaces that aren't 'r' or 'e' characters
 			// 'o' and 'i' are walls but don't define room boundaries
-			if (i == 0 || i == 249 || j == 0 || j == 399) && mapChars[i][j] != 'r' {
+			if (i == 0 || i == 249 || j == 0 || j == 399) && mapChars[i][j] != 'r' && mapChars[i][j] != 'e' {
 				markOutsideSpaces(&result, &mapChars, i, j)
 			}
 		}
 	}
 
-	// Third pass: assign room numbers only to spaces that are enclosed by 'r' boundaries
-	// A space is in a room only if it cannot reach the edge without passing through 'r' characters
-	roomNum := 3
+	// Third pass: assign room numbers only to spaces that are enclosed by 'r'/'e' boundaries
+	// A space is in a room only if it cannot reach the edge without passing through 'r'/'e' characters
+	roomNum := 1
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
 			// Skip if already marked (wall, outside, or already in a room)
-			if result[i][j] != 0 {
+			if result[i][j] != "" {
 				continue
 			}
 
 			// This is an unvisited space that couldn't be reached from edges
-			// It must be enclosed by 'r' boundaries - assign it a room number
+			// It must be enclosed by 'r'/'e' boundaries - assign it a room number
 			// Flood fill to assign all connected spaces the same room number
-			floodFillRoom(&result, &mapChars, i, j, roomNum)
+			roomNumStr := strconv.Itoa(roomNum)
+			floodFillRoom(&result, &mapChars, i, j, roomNumStr)
 			roomNum++
 		}
 	}
 
-	// Convert any remaining 0s (shouldn't happen, but safety check) to 2
+	// Convert any remaining empty strings (shouldn't happen, but safety check) to "-1"
 	for i := 0; i < 250; i++ {
 		for j := 0; j < 400; j++ {
-			if result[i][j] == 0 {
-				result[i][j] = 2
+			if result[i][j] == "" {
+				result[i][j] = "-1"
 			}
 		}
 	}
@@ -388,10 +395,10 @@ func fillRoomMap() ([250][400]int, error) {
 	return result, nil
 }
 
-// markOutsideSpaces marks spaces outside 'r' boundaries as 2 using flood fill
-// Only 'r' characters block the flood fill - 'o' and 'i' don't block it
-// This ensures that only spaces enclosed by 'r' boundaries are considered rooms
-func markOutsideSpaces(result *[250][400]int, mapChars *[250][400]rune, startY, startX int) {
+// markOutsideSpaces marks spaces outside 'r'/'e' boundaries as "-1" using flood fill
+// Only 'r' and 'e' characters block the flood fill - 'o' and 'i' don't block it
+// This ensures that only spaces enclosed by 'r'/'e' boundaries are considered rooms
+func markOutsideSpaces(result *[250][400]string, mapChars *[250][400]rune, startY, startX int) {
 	type point struct {
 		y, x int
 	}
@@ -407,31 +414,31 @@ func markOutsideSpaces(result *[250][400]int, mapChars *[250][400]rune, startY, 
 		}
 
 		// Skip if already marked
-		if result[p.y][p.x] == 2 {
+		if result[p.y][p.x] == "-1" {
 			continue
 		}
 
-		// Only 'r' characters block the flood fill - 'o' and 'i' are passable for this check
-		// This is because rooms are defined by 'r' boundaries, not 'o' or 'i'
-		if mapChars[p.y][p.x] == 'r' {
-			// This is an 'r' wall - don't mark it as outside, don't continue flood fill
+		// Only 'r' and 'e' characters block the flood fill - 'o' and 'i' are passable for this check
+		// This is because rooms are defined by 'r'/'e' boundaries, not 'o' or 'i'
+		if mapChars[p.y][p.x] == 'r' || mapChars[p.y][p.x] == 'e' {
+			// This is an 'r' or 'e' wall - don't mark it as outside, don't continue flood fill
 			continue
 		}
 
-		// Mark as outside (not enclosed by 'r' boundaries)
-		result[p.y][p.x] = 2
+		// Mark as outside (not enclosed by 'r'/'e' boundaries)
+		result[p.y][p.x] = "-1"
 
-		// Add neighbors to stack (only if not 'r' characters)
-		if p.y > 0 && mapChars[p.y-1][p.x] != 'r' {
+		// Add neighbors to stack (only if not 'r' or 'e' characters)
+		if p.y > 0 && mapChars[p.y-1][p.x] != 'r' && mapChars[p.y-1][p.x] != 'e' {
 			stack = append(stack, point{p.y - 1, p.x}) // up
 		}
-		if p.y < 249 && mapChars[p.y+1][p.x] != 'r' {
+		if p.y < 249 && mapChars[p.y+1][p.x] != 'r' && mapChars[p.y+1][p.x] != 'e' {
 			stack = append(stack, point{p.y + 1, p.x}) // down
 		}
-		if p.x > 0 && mapChars[p.y][p.x-1] != 'r' {
+		if p.x > 0 && mapChars[p.y][p.x-1] != 'r' && mapChars[p.y][p.x-1] != 'e' {
 			stack = append(stack, point{p.y, p.x - 1}) // left
 		}
-		if p.x < 399 && mapChars[p.y][p.x+1] != 'r' {
+		if p.x < 399 && mapChars[p.y][p.x+1] != 'r' && mapChars[p.y][p.x+1] != 'e' {
 			stack = append(stack, point{p.y, p.x + 1}) // right
 		}
 	}
@@ -439,7 +446,7 @@ func markOutsideSpaces(result *[250][400]int, mapChars *[250][400]rune, startY, 
 
 // floodFillRoom assigns a room number to all connected spaces starting from (startY, startX)
 // This ensures all spaces in the same enclosed region get the same room number
-func floodFillRoom(result *[250][400]int, mapChars *[250][400]rune, startY, startX, roomNum int) {
+func floodFillRoom(result *[250][400]string, mapChars *[250][400]rune, startY, startX int, roomNumStr string) {
 	type point struct {
 		y, x int
 	}
@@ -455,24 +462,25 @@ func floodFillRoom(result *[250][400]int, mapChars *[250][400]rune, startY, star
 		}
 
 		// Skip if already marked (wall, outside, or already in a room)
-		if result[p.y][p.x] != 0 {
+		// Also skip 'e' characters - they act like 'r' for boundaries but are marked as 'e'
+		if result[p.y][p.x] != "" || mapChars[p.y][p.x] == 'e' {
 			continue
 		}
 
 		// Assign room number
-		result[p.y][p.x] = roomNum
+		result[p.y][p.x] = roomNumStr
 
-		// Add neighbors to stack (only unvisited spaces, not walls)
-		if p.y > 0 && result[p.y-1][p.x] == 0 {
+		// Add neighbors to stack (only unvisited spaces, not walls or 'e' characters)
+		if p.y > 0 && result[p.y-1][p.x] == "" && mapChars[p.y-1][p.x] != 'e' {
 			stack = append(stack, point{p.y - 1, p.x}) // up
 		}
-		if p.y < 249 && result[p.y+1][p.x] == 0 {
+		if p.y < 249 && result[p.y+1][p.x] == "" && mapChars[p.y+1][p.x] != 'e' {
 			stack = append(stack, point{p.y + 1, p.x}) // down
 		}
-		if p.x > 0 && result[p.y][p.x-1] == 0 {
+		if p.x > 0 && result[p.y][p.x-1] == "" && mapChars[p.y][p.x-1] != 'e' {
 			stack = append(stack, point{p.y, p.x - 1}) // left
 		}
-		if p.x < 399 && result[p.y][p.x+1] == 0 {
+		if p.x < 399 && result[p.y][p.x+1] == "" && mapChars[p.y][p.x+1] != 'e' {
 			stack = append(stack, point{p.y, p.x + 1}) // right
 		}
 	}
@@ -485,7 +493,7 @@ func (m Model) renderGamePanel(width, height int) string {
 		Bold(true).
 		Width(width).
 		Align(lipgloss.Center).
-		Render("GAME WORLD")
+		Render("Morgridge Hall")
 
 	// Calculate actual viewport dimensions (accounting for borders and padding)
 	viewportWidth := width - 4
@@ -593,10 +601,16 @@ func (m *Model) populateGrids() {
 			// Fill game world grid
 			m.GameWorldGrid[y][x] = gameWorldData[sourceY][sourceX]
 			// Fill rooms grid with room letter or empty
-			roomNum := roomData[sourceY][sourceX]
-			if roomNum >= 3 {
-				roomLetter := string(rune('A' + (roomNum - 3)))
-				m.RoomsGrid[y][x] = roomLetter
+			roomValue := roomData[sourceY][sourceX]
+			// Check if it's a room number (numeric string starting from "1")
+			if roomValue != "" && roomValue != "-1" && roomValue != "r" && roomValue != "o" && roomValue != "i" && roomValue != "e" {
+				// It's a room number string, convert to letter
+				if roomNum, err := strconv.Atoi(roomValue); err == nil && roomNum >= 1 {
+					roomLetter := string(rune('A' + (roomNum - 1)))
+					m.RoomsGrid[y][x] = roomLetter
+				} else {
+					m.RoomsGrid[y][x] = ""
+				}
 			} else {
 				m.RoomsGrid[y][x] = ""
 			}
@@ -604,56 +618,63 @@ func (m *Model) populateGrids() {
 	}
 }
 
-// getCurrentPlayerRoom returns the room number where the current player is located
-// Returns -1 for walls, 2 for hallways, 3+ for rooms
-func (m *Model) getCurrentPlayerRoom() int {
+// getCurrentPlayerRoom returns the room number string where the current player is located
+// Returns empty string for walls/hallways, room number string ("1", "2", ...) for rooms
+func (m *Model) getCurrentPlayerRoom() string {
 	if m.connMgr == nil {
-		return -1
+		return ""
 	}
 
 	gameState := m.connMgr.GetState()
 	if gameState == nil {
-		return -1
+		return ""
 	}
 
 	currentPlayer, exists := gameState.Players[m.userName]
 	if !exists {
-		return -1
+		return ""
 	}
 
 	playerX, playerY := parsePosition(currentPlayer.Pos)
 
 	// Bounds check
 	if playerX < 0 || playerX >= 400 || playerY < 0 || playerY >= 250 {
-		return -1
+		return ""
 	}
 
-	// Get room number from roomMap
+	// Get room value from roomMap
 	roomData, err := getRoomMap()
 	if err != nil {
-		return -1
+		return ""
 	}
 
-	return roomData[playerY][playerX]
+	roomValue := roomData[playerY][playerX]
+	// Return room number if it's a numeric string (room), empty string otherwise
+	if roomValue != "" && roomValue != "-1" && roomValue != "r" && roomValue != "o" && roomValue != "i" && roomValue != "e" {
+		// Check if it's a valid room number
+		if _, err := strconv.Atoi(roomValue); err == nil {
+			return roomValue
+		}
+	}
+	return ""
 }
 
-// isPlayerInRoom checks if the player is in any room (room number >= 3)
+// isPlayerInRoom checks if the player is in any room (room number string is not empty)
 func (m *Model) isPlayerInRoom() bool {
-	return m.getCurrentPlayerRoom() >= 3
+	return m.getCurrentPlayerRoom() != ""
 }
 
 // isPlayerInSpecificRoom checks if the player is in a specific room number
 func (m *Model) isPlayerInSpecificRoom(roomNum int) bool {
-	return m.getCurrentPlayerRoom() == roomNum
-}
-
-// getRoomLetter converts a room number to a letter (A, B, C...)
-// Returns empty string for non-room numbers
-func getRoomLetter(roomNum int) string {
-	if roomNum < 3 {
-		return ""
+	roomStr := m.getCurrentPlayerRoom()
+	if roomStr == "" {
+		return false
 	}
-	return string(rune('A' + (roomNum - 3)))
+	roomNumFromStr, err := strconv.Atoi(roomStr)
+	if err != nil {
+		return false
+	}
+	return roomNumFromStr == roomNum
 }
 
 // renderPlayerToOverlay renders a single player to the overlay grid
