@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"log" //logs messages
+	"math/rand"
 	"sync"
 	"time"
 
@@ -34,6 +35,12 @@ type Room struct {
 
 // NewRoom creates a new game room
 func NewRoom(id string, chatManager *ChatManager) *Room {
+	roomMap, err := fillRoomMap()
+	if err != nil {
+		log.Printf("Warning: failed to load room map: %v", err)
+		roomMap = [250][400]string{} // Use empty map as fallback
+	}
+
 	return &Room{
 		ID:      id,
 		Clients: make(map[string]*Client),
@@ -41,6 +48,7 @@ func NewRoom(id string, chatManager *ChatManager) *Room {
 			Tick:          0,
 			Players:       make(map[string]protocol.Player),
 			PosToUsername: make(map[string]string),
+			Map:           roomMap,
 		},
 		chatManager: chatManager,
 
@@ -73,14 +81,83 @@ func (r *Room) Run() {
 	}
 }
 
+// findRandomSpawnPosition finds a random valid spawn position in the room
+// A valid position must be "-1" (outside area, not in a room) and have a 3x3 area around it that is all "-1"s
+func (r *Room) findRandomSpawnPosition() (string, error) {
+	maxAttempts := 1000
+	for i := 0; i < maxAttempts; i++ {
+		x := rand.Intn(400)
+		y := rand.Intn(250)
+		posStr := fmt.Sprintf("%d:%d", x, y)
+
+		// Check if center position is "-1" (outside area, not in a room)
+		if r.GameState.Map[y][x] != "-1" {
+			continue
+		}
+
+		// Check if all 8 surrounding cells are also "-1"
+		valid := true
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				ny := y + dy
+				nx := x + dx
+
+				// Check bounds
+				if ny < 0 || ny >= 250 || nx < 0 || nx >= 400 {
+					valid = false
+					break
+				}
+
+				// Check if cell is "-1"
+				if r.GameState.Map[ny][nx] != "-1" {
+					valid = false
+					break
+				}
+			}
+			if !valid {
+				break
+			}
+		}
+
+		if !valid {
+			continue
+		}
+
+		// Check if position is not occupied
+		if _, occupied := r.GameState.PosToUsername[posStr]; occupied {
+			continue
+		}
+
+		return posStr, nil
+	}
+
+	return "", fmt.Errorf("failed to find valid spawn position after %d attempts", maxAttempts)
+}
+
 func (r *Room) handleRegister(client *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Assign starting position based on current number of clients
-	client.Pos = startingPositions[len(r.Clients)]
+	// Find a random valid spawn position
+	posStr, err := r.findRandomSpawnPosition()
+	if err != nil {
+		log.Printf("Error finding spawn position for %s: %v", client.Name, err)
+		// Fallback to a default position if we can't find a valid one
+		posStr = "52:120"
+	}
+	client.Pos = posStr
 
 	r.Clients[client.ID] = client
+
+	// Update GameState.Players map
+	r.GameState.Players[client.Username] = protocol.Player{
+		Username: client.Username,
+		Pos:      posStr,
+		Avatar:   client.Avatar,
+	}
+
+	// Update GameState.PosToUsername map to track occupied positions
+	r.GameState.PosToUsername[posStr] = client.Username
 
 	log.Printf("Player %s joined room %s at position %s", client.Name, r.ID, client.Pos)
 
